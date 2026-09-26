@@ -217,7 +217,7 @@ L, B, T in mm, rho in kg/m3, q = quantity, w = wastage, o = overhead, m = margin
 
 ### Costing breakdown JSON (output of `sandbox/costing.py`, input to `make_quote_pdf`)
 
-Money is rounded to paise per line, so line items add up exactly to every total. `unit_price_before_gst` is for display only and is not part of any sum.
+Money is rounded to paise per line, so line items add up exactly to every total. Each line carries `qty`, `unit` and `rate` for the quote table. `unit_price_before_gst` is for display only and is not part of any sum.
 
 `priced_at_floor` is true when run with `--at-floor`: the margin is `margin_floor_pct`, which gives the floor price used in negotiation (scenario 1 at floor: margin Rs 818.17, total Rs 9,010.81). `priced_at_target` is false for standard pricing. After the owner approves a below-floor margin, the agent re-runs with `--price-at-target`: the margin is solved so `total` equals `target_price` exactly (the margin line absorbs paise rounding), `margin.pct` shows the effective margin and `priced_at_target` is true. Scenario 3 at target: margin Rs 554.77 (8.14%), price before GST Rs 7,372.88, GST Rs 1,327.12, total Rs 8,700.00.
 
@@ -233,11 +233,11 @@ Money is rounded to paise per line, so line items add up exactly to every total.
     "weight_kg_per_piece": 1.256, "weight_kg_total": 62.8, "kg_needed": 65.94,
     "nesting": {"sheet_mm": [1250, 2500], "parts_per_sheet": 150, "orientation": "as_given", "sheets_needed": 1, "scrap_pct": 68.0},
     "line_items": [
-      {"label": "Material", "detail": "62.8 kg MS @ Rs 62/kg + 5% wastage", "amount": 4088.28},
-      {"label": "Cutting", "detail": "50 x 1 @ Rs 15 per_piece", "amount": 750},
-      {"label": "Bending", "detail": "50 x 1 @ Rs 10 per_bend", "amount": 500},
-      {"label": "Drilling", "detail": "50 x 2 @ Rs 5 per_hole", "amount": 500},
-      {"label": "Finishing", "detail": "powder_coat, 2 m2 (both faces) @ Rs 180/m2", "amount": 360}
+      {"label": "Material", "detail": "62.8 kg MS @ Rs 62/kg + 5% wastage", "qty": 65.94, "unit": "kg", "rate": 62, "amount": 4088.28},
+      {"label": "Cutting", "detail": "50 x 1 @ Rs 15 per_piece", "qty": 50, "unit": "Nos", "rate": 15, "amount": 750},
+      {"label": "Bending", "detail": "50 x 1 @ Rs 10 per_bend", "qty": 50, "unit": "bends", "rate": 10, "amount": 500},
+      {"label": "Drilling", "detail": "50 x 2 @ Rs 5 per_hole", "qty": 100, "unit": "holes", "rate": 5, "amount": 500},
+      {"label": "Finishing", "detail": "powder_coat, 2 m2 (both faces) @ Rs 180/m2", "qty": 2, "unit": "m2", "rate": 180, "amount": 360}
     ],
     "item_cost": 6198.28,
     "unit_price_before_gst": 163.63

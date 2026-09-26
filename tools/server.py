@@ -108,14 +108,14 @@ def make_quote_pdf(quote: QuoteInput) -> dict:
     """Save the quote and render its one-page PDF. `spec` is the validated spec; `breakdown` is the costing.py JSON exactly as printed. Rejected if it does not add up or does not match the shop rate card. Returns the quote_id to use for send_quote."""
     spec, breakdown = quote["spec"], quote["breakdown"]
     pdf.check_breakdown(breakdown)
-    pdf.verify_against_rate_card(spec, breakdown, get_rate_card(sorted({i["material"] for i in spec["items"]})))
+    verified = pdf.verify_against_rate_card(spec, breakdown, get_rate_card(sorted({i["material"] for i in spec["items"]})))
     with connect() as conn:
         row = conn.execute(
             "INSERT INTO quotes (customer, spec_json, breakdown_json, total, status) VALUES (%s, %s, %s, %s, 'draft') RETURNING id",
             (quote.get("customer") or "Customer", Jsonb(spec), Jsonb(breakdown), breakdown["total"]),
         ).fetchone()
         quote_id = f"Q-{row['id']:04d}"
-        path = pdf.render(quote_id, quote.get("customer"), quote["email"], breakdown, quote.get("assumptions") or [])
+        path = pdf.render(quote_id, quote.get("customer"), quote["email"], verified, quote.get("assumptions") or [])
         pdf_path = str(path.relative_to(pdf.QUOTES_DIR.parent))
         conn.execute("UPDATE quotes SET pdf_path = %s WHERE id = %s", (pdf_path, row["id"]))
     return {"quote_id": quote_id, "pdf_path": pdf_path}

@@ -20,6 +20,9 @@ PAISE = Decimal("0.01")
 MIN_PIECE_KG = Decimal("0.001")
 MAX_PIECE_KG = Decimal("2000")
 
+# Quantity unit shown on the quote for each labour op.
+OP_UNITS = {"cutting": "Nos", "bending": "bends", "welding": "m", "drilling": "holes"}
+
 # Spec ops key -> (labour op in the rate card, label)
 OPS = {"cutting": ("cutting", "Cutting"), "bends": ("bending", "Bending"), "weld_m": ("welding", "Welding"), "holes": ("drilling", "Drilling")}
 
@@ -85,7 +88,8 @@ def cost_item(item: dict, rates: tuple, wastage_mode: str) -> tuple[dict, list[s
         detail = f"{w['nesting']['sheets_needed']} sheet(s), {num(round(w['kg_needed'], 3))} kg {item['material']} @ Rs {num(rate_kg)}/kg"
     else:
         detail = f"{num(round(w['total_kg'], 3))} kg {item['material']} @ Rs {num(rate_kg)}/kg + {num(dec(material['wastage_pct']))}% wastage"
-    lines.append({"label": "Material", "detail": detail, "amount": money(w["kg_needed"] * rate_kg)})
+    lines.append({"label": "Material", "detail": detail, "qty": w["kg_needed"].quantize(PAISE), "unit": "kg", "rate": rate_kg,
+                  "amount": money(w["kg_needed"] * rate_kg)})
 
     for key, count in (item.get("ops") or {}).items():
         if key not in OPS:
@@ -97,7 +101,8 @@ def cost_item(item: dict, rates: tuple, wastage_mode: str) -> tuple[dict, list[s
         if op not in labour:
             raise InputError(f"{item['name']}: no labour rate for {op}")
         rate = dec(labour[op]["rate"])
-        lines.append({"label": label, "detail": f"{num(qty)} x {num(count)} @ Rs {num(rate)} {labour[op]['unit']}", "amount": money(count * rate * qty)})
+        lines.append({"label": label, "detail": f"{num(qty)} x {num(count)} @ Rs {num(rate)} {labour[op]['unit']}",
+                      "qty": count * qty, "unit": OP_UNITS[op], "rate": rate, "amount": money(count * rate * qty)})
 
     finish = item.get("finish")
     if finish and finish != "none":
@@ -105,7 +110,8 @@ def cost_item(item: dict, rates: tuple, wastage_mode: str) -> tuple[dict, list[s
             raise InputError(f"{item['name']}: no finishing rate for {finish}")
         area_m2 = 2 * dec(item["length_mm"]) * dec(item["width_mm"]) / Decimal("1e6")  # both faces
         rate = dec(finishing[finish]["rate_per_m2"])
-        lines.append({"label": "Finishing", "detail": f"{finish}, {num(area_m2 * qty)} m2 (both faces) @ Rs {num(rate)}/m2", "amount": money(area_m2 * qty * rate)})
+        lines.append({"label": "Finishing", "detail": f"{finish}, {num(area_m2 * qty)} m2 (both faces) @ Rs {num(rate)}/m2",
+                      "qty": area_m2 * qty, "unit": "m2", "rate": rate, "amount": money(area_m2 * qty * rate)})
 
     errors = []
     if not MIN_PIECE_KG <= w["piece_kg"] <= MAX_PIECE_KG:
