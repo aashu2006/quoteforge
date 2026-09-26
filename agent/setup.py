@@ -121,7 +121,8 @@ def main() -> None:
             "auth": {"api_key": daytona_key},
             "exec_timeout_ms": 60000,
             "auto_stop_interval_in_minutes": 5,
-            "auto_archive_interval_in_minutes": 60,
+            # Stopped sandboxes keep counting against Daytona's disk quota until archived.
+            "auto_archive_interval_in_minutes": 10,
             "auto_delete_interval_in_minutes": 7200,
         }})
         # The skill is cloned from git into the sandbox, so sandbox/ changes need a push first.
