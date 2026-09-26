@@ -1,68 +1,65 @@
 const express = require('express');
-const { execSync } = require('child_process');
-const { writeFileSync, unlinkSync } = require('fs');
+const { spawn } = require('child_process');
 const path = require('path');
-const os = require('os');
-const { TrueForgeHarness } = require('./agent/harness');
-const { getRateCard } = require('./tools/rate_card');
-const { checkStock } = require('./tools/stock');
 
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'ui')));
+app.use('/quotes', express.static(path.join(__dirname, 'quotes')));
 
-// ── POST /api/quote ───────────────────────────────────────────────────────────
-// Main endpoint: runs the full agent loop on a customer enquiry
+// A cold sandbox plus a full agent turn can take a couple of minutes.
+const API_TIMEOUT_MS = Number(process.env.API_TIMEOUT_MS) || 240000;
+
+// Runs agent/api.py <command> with the request as JSON on stdin; resolves with its JSON reply.
+function callAgent(command, payload) {
+    return new Promise((resolve) => {
+        const child = spawn('uv', ['run', 'api.py', command], { cwd: path.join(__dirname, 'agent') });
+        let stdout = '';
+        let stderr = '';
+        const timer = setTimeout(() => {
+            child.kill('SIGTERM');
+            resolve({ httpStatus: 504, body: { status: 'error', error: `Agent did not answer within ${API_TIMEOUT_MS / 1000}s` } });
+        }, API_TIMEOUT_MS);
+
+        child.stdout.on('data', (d) => { stdout += d; });
+        child.stderr.on('data', (d) => { stderr += d; });
+        child.on('error', (err) => {
+            clearTimeout(timer);
+            resolve({ httpStatus: 500, body: { status: 'error', error: err.message } });
+        });
+        child.on('close', () => {
+            clearTimeout(timer);
+            if (stderr.trim()) console.error(`[api.py ${command}] ${stderr.trim()}`);
+            try {
+                const body = JSON.parse(stdout);
+                resolve({ httpStatus: body.status === 'error' ? 500 : 200, body });
+            } catch {
+                resolve({ httpStatus: 500, body: { status: 'error', error: 'Agent returned no JSON', logs: [stderr.slice(-2000)] } });
+            }
+        });
+        child.stdin.end(JSON.stringify(payload));
+    });
+}
+
+// POST /api/quote {enquiry}: extract, validate, and run the agent to its first approval gate.
 app.post('/api/quote', async (req, res) => {
-    const { enquiry } = req.body;
-    if (!enquiry) return res.status(400).json({ error: 'No enquiry provided' });
-
-    try {
-        const tmpFile = path.join(os.tmpdir(), `qf_enquiry_${Date.now()}.txt`);
-        writeFileSync(tmpFile, enquiry, 'utf8');
-
-        // We use uv run to execute the query_agent.py script inside the agent dir
-        const output = execSync(
-            `uv run query_agent.py < "${tmpFile}"`,
-            { cwd: path.join(__dirname, 'agent') }
-        ).toString();
-        
-        unlinkSync(tmpFile);
-        
-        const result = JSON.parse(output);
-        res.json(result);
-    } catch (err) {
-        console.error(err);
-        let logs = [];
-        if (err.stdout) logs.push(err.stdout.toString());
-        if (err.stderr) logs.push(err.stderr.toString());
-        res.status(500).json({ error: err.message, logs: logs });
-    }
+    const { enquiry } = req.body || {};
+    if (!enquiry || !enquiry.trim()) return res.status(400).json({ status: 'error', error: 'No enquiry provided' });
+    const { httpStatus, body } = await callAgent('start', { enquiry });
+    res.status(httpStatus).json(body);
 });
 
-// ── POST /api/rates ───────────────────────────────────────────────────────────
-app.get('/api/rates', async (req, res) => {
-    try {
-        const rates = await getRateCard();
-        res.json(rates);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+// POST /api/decision {session_id, decision: "allow"|"deny", reason?}: answer the pending gate.
+app.post('/api/decision', async (req, res) => {
+    const { session_id, decision, reason } = req.body || {};
+    if (!session_id || !['allow', 'deny'].includes(decision)) {
+        return res.status(400).json({ status: 'error', error: 'session_id and decision (allow|deny) are required' });
     }
-});
-
-// ── POST /api/stock ───────────────────────────────────────────────────────────
-app.get('/api/stock/:material/:thickness/:kgNeeded', async (req, res) => {
-    const { material, thickness, kgNeeded } = req.params;
-    try {
-        const result = await checkStock(material, parseFloat(thickness), parseFloat(kgNeeded));
-        res.json(result);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    const { httpStatus, body } = await callAgent('decide', { session_id, decision, reason });
+    res.status(httpStatus).json(body);
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`\n🚀 QuoteForge server running at http://localhost:${PORT}`);
-    console.log(`   Open http://localhost:${PORT} in your browser\n`);
+    console.log(`\nQuoteForge server running at http://localhost:${PORT}\n`);
 });

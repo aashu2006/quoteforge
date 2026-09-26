@@ -23,8 +23,6 @@
   },
   "homepage": "https://github.com/Famous077/quoteforge#readme",
   "dependencies": {
-    "dotenv": "^18.0.4",
-    "express": "^5.2.1",
-    "pg": "^8.23.0"
+    "express": "^5.2.1"
   }
 }
