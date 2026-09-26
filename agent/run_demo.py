@@ -1,13 +1,15 @@
 """Run a demo scenario through the saved QuoteForge agent and stop at the first approval gate.
 
-Run: uv run run_demo.py [--scenario 1|3] [--approve | --deny] [--session ID]
+Run: uv run run_demo.py [--scenario 1|3|4|5] [--approve | --deny] [--session ID]
 Without a decision flag the run stops at the first gate and nothing is sent.
 With one, every gate in the run gets that decision.
+Scenarios 4 and 5 first send the scenario 1 quote (its send gate is allowed as setup), then the customer replies.
 """
 
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -30,7 +32,13 @@ Delivery needed in 2 weeks.""",
 Hi, please quote for 50 nos MS L brackets, 200 x 100 x 8 mm, 1 bend and 2 holes each, powder coated.
 Our budget is Rs 8,700 for the full order, all inclusive of GST. Delivery needed in 2 weeks.""",
 }
-EXPECTED_FIRST_GATE = {1: "send_quote", 3: "request_margin_approval"}
+# Negotiation: the customer replies to the scenario 1 quote (Rs 9,654.44; floor at 12% is Rs 9,010.81).
+REPLIES = {
+    4: "Thanks for the quote. Can you do it for Rs 7,500?",  # below floor, even below cost: counter-offer
+    5: "Thanks for the quote. Can you do it for Rs 9,200?",  # above floor: revised quote at target
+}
+EXPECTED_FIRST_GATE = {1: "send_quote", 3: "request_margin_approval", 4: "send_counter_offer", 5: "send_quote"}
+FLOOR_TOTAL = 9010.81
 
 # make_quote_pdf does not exist yet, so there is no real quote id; remove once it does.
 QUOTE_ID_NOTE = '[Demo run: use quote_id "Q-DEMO-001".]'
@@ -123,72 +131,164 @@ def gates(events: dict, pending: list) -> list[tuple]:
     return [(p.thread_id, ref.id, *find_call(events, ref.id)) for p in pending for ref in p.tool_calls]
 
 
+def print_gate(name: str, call_args: str) -> None:
+    if name != "send_counter_offer":
+        print(f"PAUSED before {name}({call_args})")
+        return
+    offer = json.loads(call_args)
+    print(f"PAUSED before send_counter_offer to {offer['email']} (quote {offer['quote_id']})\n\n   Message:")
+    print("\n".join(f"   | {line}" for line in offer["message"].splitlines()))
+    print("\n   Options:")
+    for o in offer["options"]:
+        print(f"     {o['label']:<34} {o['changes']:<44} Rs {o['total']:>10,.2f}  (Rs {o['unit_price']:,.2f}/pc before GST)")
+
+
+def resolve_gates(client: TrueForge, session_id: str, pending_gates: list, approval: dict, events: dict) -> None:
+    while pending_gates:
+        print(f"\nOwner decision on {', '.join(g[2] for g in pending_gates)}: {approval['status']}")
+        pending = stream_turn(client, session_id, [
+            {"type": "user.tool_approval", "thread_id": thread_id, "tool_call_id": call_id, "approval": approval}
+            for thread_id, call_id, _, _ in pending_gates
+        ], events)
+        pending_gates = gates(events, pending)
+        for _, _, name, call_args in pending_gates:
+            print()
+            print_gate(name, call_args)
+
+
+def report(title: str, checks: dict) -> bool:
+    print(f"\n=== {title} ===")
+    for label, passed in checks.items():
+        print(f"  [{'x' if passed else ' '}] {label}")
+    return all(checks.values())
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scenario", type=int, choices=sorted(SCENARIOS), default=1)
+    parser.add_argument("--scenario", type=int, choices=sorted([*SCENARIOS, *REPLIES]), default=1)
     decision = parser.add_mutually_exclusive_group()
     decision.add_argument("--approve", action="store_true", help="allow every gated call")
     decision.add_argument("--deny", action="store_true", help="deny every gated call")
     parser.add_argument("--session", help="reuse a session (e.g. one warmed by warmup.py) instead of opening a new one")
     args = parser.parse_args()
 
+    sandbox = bool(os.environ.get("DAYTONA_API_KEY"))
+    negotiation = args.scenario in REPLIES
+    if negotiation and not sandbox:
+        sys.exit("Negotiation scenarios need the sandbox (DAYTONA_API_KEY).")
+
     client = TrueForge(base_url=os.environ.get("TRUEFORGE_BASE_URL") or "http://localhost:8790", timeout=600)
     session_id = args.session or client.sessions.create(agent={"name": AGENT_NAME}).data.id
-    enquiry = SCENARIOS[args.scenario]
+    enquiry = SCENARIOS[1 if negotiation else args.scenario]
     print(f"Session {session_id}\n\nScenario {args.scenario} enquiry:\n{enquiry}")
 
     events: dict = {}
     pending = stream_turn(client, session_id, [{"type": "user.message", "content": f"{enquiry}\n\n{QUOTE_ID_NOTE}"}], events)
+
+    if negotiation:
+        setup = gates(events, pending)
+        if not setup or setup[0][2] != "send_quote":
+            sys.exit(f"Setup failed: expected the scenario 1 quote to pause at send_quote, got {[g[2] for g in setup]}")
+        print("\n=== Setup: owner approves the standard scenario 1 quote ===")
+        resolve_gates(client, session_id, setup, {"status": "allow"}, events)
+        print(f"\nCustomer replies: {REPLIES[args.scenario]}")
+        mark = len(events)
+        pending = stream_turn(client, session_id, [{"type": "user.message", "content": REPLIES[args.scenario]}], events)
+        turn = list(events.values())[mark:]
+    else:
+        turn = list(events.values())
     first = gates(events, pending)
 
-    responses = [e for e in events.values() if e.type == "tool.response"]
+    responses = [e for e in turn if e.type == "tool.response"]
     called = [find_call(events, e.tool_call_id)[0] for e in responses]
-    stock_kg = [json.loads(find_call(events, e.tool_call_id)[1]).get("kg_needed") for e in responses if find_call(events, e.tool_call_id)[0] == "check_stock"]
-    breakdowns = [b for e in responses if (b := find_breakdown(e.content))]
 
     print("\n=== Approval gate ===")
     if not first:
         print("No approval pending.")
     for _, _, name, call_args in first:
-        print(f"PAUSED before {name}({call_args})")
+        print_gate(name, call_args)
 
-    sandbox = bool(os.environ.get("DAYTONA_API_KEY"))
-    checks = {
-        "rate card fetched": "get_rate_card" in called,
-        "stock checked": "check_stock" in called,
-        "nothing sent": "send_quote" not in called,
-    }
+    checks = {"nothing sent": not {"send_quote", "send_counter_offer"} & set(called)}
     if not sandbox:
         # Without costing there are no trusted numbers, so the agent keeps a draft and stops.
         checks["stops as draft without a gate (no sandbox)"] = not first
     else:
         checks[f"first gate is {EXPECTED_FIRST_GATE[args.scenario]}"] = bool(first) and first[0][2] == EXPECTED_FIRST_GATE[args.scenario]
-        checks["check_stock got kg_needed 65.94"] = 65.94 in stock_kg
-        checks["costing.py breakdown total 9654.44"] = any(b["total"] == 9654.44 and b["self_check"]["passed"] for b in breakdowns)
-        if args.scenario == 3:
-            checks["margin below floor (8.14%)"] = any(b["margin_check"]["effective_margin_pct"] == 8.14 for b in breakdowns)
-    ok = all(checks.values())
-    for label, passed in checks.items():
-        print(f"  [{'x' if passed else ' '}] {label}")
+    if negotiation:
+        checks.update(negotiation_checks(events, turn, first, args.scenario))
+    else:
+        checks.update(quote_checks(events, responses, called, sandbox, args.scenario))
+    ok = report(f"Scenario {args.scenario} checks", checks)
     print(f"\nScenario {args.scenario}: {'PASS' if ok else 'FAIL'} (tools run: {called})")
 
     if args.approve or args.deny:
         approval = {"status": "allow"} if args.approve else {"status": "deny", "reason": "Owner rejected; keep as draft."}
-        pending_gates = first
-        while pending_gates:
-            print(f"\nOwner decision on {', '.join(g[2] for g in pending_gates)}: {approval['status']}")
-            pending = stream_turn(client, session_id, [
-                {"type": "user.tool_approval", "thread_id": thread_id, "tool_call_id": call_id, "approval": approval}
-                for thread_id, call_id, _, _ in pending_gates
-            ], events)
-            pending_gates = gates(events, pending)
-            for _, _, name, call_args in pending_gates:
-                print(f"\nPAUSED before {name}({call_args})")
-
+        resolve_gates(client, session_id, first, approval, events)
         if sandbox and args.scenario == 3:
             ok = check_scenario3_outcome(events, approved=args.approve) and ok
+        if args.scenario == 4:
+            ok = check_counter_offer_outcome(events, turn_start=mark, approved=args.approve) and ok
 
     sys.exit(0 if ok else 1)
+
+
+def quote_checks(events: dict, responses: list, called: list, sandbox: bool, scenario: int) -> dict:
+    checks = {"rate card fetched": "get_rate_card" in called, "stock checked": "check_stock" in called}
+    if sandbox:
+        stock_kg = [json.loads(find_call(events, e.tool_call_id)[1]).get("kg_needed") for e in responses if find_call(events, e.tool_call_id)[0] == "check_stock"]
+        breakdowns = [b for e in responses if (b := find_breakdown(e.content))]
+        checks["check_stock got kg_needed 65.94"] = 65.94 in stock_kg
+        checks["costing.py breakdown total 9654.44"] = any(b["total"] == 9654.44 and b["self_check"]["passed"] for b in breakdowns)
+        if scenario == 3:
+            checks["margin below floor (8.14%)"] = any(b["margin_check"]["effective_margin_pct"] == 8.14 for b in breakdowns)
+    return checks
+
+
+def sandbox_numbers(events: dict, turn: list) -> set[float]:
+    """Every number printed by sandbox commands in this turn: offered prices must be among them."""
+    numbers = set()
+    for e in turn:
+        if e.type == "tool.response" and find_call(events, e.tool_call_id)[0] == "exec":
+            numbers |= {float(n.replace(",", "")) for n in re.findall(r"\d[\d,]*\.\d+|\d[\d,]*", str(e.content))}
+    return numbers
+
+
+def negotiation_checks(events: dict, turn: list, first: list, scenario: int) -> dict:
+    exec_cmds = [json.loads(args).get("command", "") for e in turn if e.type == "model.message"
+                 for tc in e.tool_calls or [] if tc.function.name == "exec" and (args := tc.function.arguments)]
+    numbers = sandbox_numbers(events, turn)
+    materials = set(re.findall(r"""["']material["']\s*:\s*["'](\w+)""", "\n".join(exec_cmds)))
+    thicknesses = {float(t) for t in re.findall(r"""["']thickness_mm["']\s*:\s*([\d.]+)""", "\n".join(exec_cmds))}
+    checks = {
+        f"floor price {FLOOR_TOTAL:,.2f} computed by costing.py --at-floor": any("--at-floor" in c for c in exec_cmds) and FLOOR_TOTAL in numbers,
+        "material and thickness unchanged (MS, 8 mm)": materials <= {"MS"} and thicknesses <= {8.0},
+    }
+    if scenario == 5:
+        at_target = [b for e in turn if e.type == "tool.response" and (b := find_breakdown(e.content)) and b.get("priced_at_target")]
+        checks["revised quote priced at target: total 9200.00"] = any(b["total"] == 9200 and b["self_check"]["passed"] for b in at_target)
+        return checks
+
+    offer = json.loads(first[0][3]) if first and first[0][2] == "send_counter_offer" else {"options": [], "message": ""}
+    totals = [round(o["total"], 2) for o in offer["options"]]
+    changes = " ".join(o["changes"] for o in offer["options"]).lower()
+    checks.update({
+        "agent wrote its own options script running costing.py": any(
+            "costing.py" in c and ("subprocess" in c or c.count("costing.py") > 1 or "for " in c) for c in exec_cmds),
+        f"2-3 options offered ({len(totals)})": 2 <= len(totals) <= 3,
+        "every option total printed by a sandbox run": bool(totals) and all(t in numbers for t in totals),
+        "no option changes material or thickness": not re.search(r"ss304|stainless|alumin|thickness|\b(?!8\b)\d+\s*mm", changes),
+        "counter-offer message drafted": len(offer["message"].strip()) > 0,
+    })
+    return checks
+
+
+def check_counter_offer_outcome(events: dict, turn_start: int, approved: bool) -> bool:
+    responses = [e for e in list(events.values())[turn_start:] if e.type == "tool.response"]
+    sent = any(find_call(events, e.tool_call_id)[0] == "send_counter_offer" and '"sent"' in str(e.content) for e in responses)
+    quoted = any(find_call(events, e.tool_call_id)[0] == "send_quote" for e in responses)
+    if approved:
+        return report("Outcome", {"counter-offer sent": sent, "no revised quote sent": not quoted})
+    return report("Outcome", {"counter-offer not sent": not sent, "no revised quote sent": not quoted})
 
 
 def check_scenario3_outcome(events: dict, approved: bool) -> bool:
