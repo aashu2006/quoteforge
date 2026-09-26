@@ -1,6 +1,6 @@
 """Run a demo scenario through the saved QuoteForge agent and stop at the first approval gate.
 
-Run: uv run run_demo.py [--scenario 1|3|4|5] [--approve | --deny] [--session ID]
+Run: uv run run_demo.py [--scenario 1-6] [--approve | --deny] [--session ID]
 Without a decision flag the run stops at the first gate and nothing is sent.
 With one, every gate in the run gets that decision.
 Scenarios 4 and 5 first send the scenario 1 quote (its send gate is allowed as setup), then the customer replies.
@@ -17,6 +17,8 @@ from dotenv import load_dotenv
 from trueforge_sdk import TrueForge
 from trueforge_sdk.events import is_event_delta, merge_event_delta
 
+import pipeline
+
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 AGENT_NAME = "quoteforge"
@@ -27,17 +29,27 @@ SCENARIOS = {
 
 Hi, please quote for 50 nos MS L brackets, 200 x 100 x 8 mm, 1 bend and 2 holes each, powder coated.
 Delivery needed in 2 weeks.""",
+    2: """From: Rakesh Sharma, Sharma Industries <purchase@sharma-industries.example>
+
+Hi, please quote for 50 nos MS L brackets, 200 x 100 mm, 1 bend and 2 holes each, powder coated.
+Delivery needed in 2 weeks.""",
     3: """From: Rakesh Sharma, Sharma Industries <purchase@sharma-industries.example>
 
 Hi, please quote for 50 nos MS L brackets, 200 x 100 x 8 mm, 1 bend and 2 holes each, powder coated.
 Our budget is Rs 8,700 for the full order, all inclusive of GST. Delivery needed in 2 weeks.""",
+    # Messy Hinglish with mixed units; must give the same spec as scenario 1.
+    6: """From: Rakesh Sharma, Sharma Industries <purchase@sharma-industries.example>
+
+bhai 50 pcs L bracket chahiye, MS, 20cm x 10cm, 8mm plate, powder coating karke, 2 hole""",
 }
+S1_ITEMS = json.loads((Path(__file__).resolve().parents[1] / "sandbox" / "examples" / "scenario1.json").read_text())["spec"]["items"]
+THICKNESS_QUESTION = "Could you please confirm the plate thickness of the L bracket (in mm)?"
 # Negotiation: the customer replies to the scenario 1 quote (Rs 9,654.44; floor at 12% is Rs 9,010.81).
 REPLIES = {
     4: "Thanks for the quote. Can you do it for Rs 7,500?",  # below floor, even below cost: counter-offer
     5: "Thanks for the quote. Can you do it for Rs 9,200?",  # above floor: revised quote at target
 }
-EXPECTED_FIRST_GATE = {1: "send_quote", 3: "request_margin_approval", 4: "send_counter_offer", 5: "send_quote"}
+EXPECTED_FIRST_GATE = {1: "send_quote", 3: "request_margin_approval", 4: "send_counter_offer", 5: "send_quote", 6: "send_quote"}
 FLOOR_TOTAL = 9010.81
 
 # make_quote_pdf does not exist yet, so there is no real quote id; remove once it does.
@@ -45,6 +57,11 @@ QUOTE_ID_NOTE = '[Demo run: use quote_id "Q-DEMO-001".]'
 
 
 def stream_turn(client: TrueForge, session_id: str, turn_input: list, events: dict) -> list:
+    """Stream one turn, retrying on model API timeouts, and return pending approval events."""
+    return pipeline.with_api_retry(lambda: _stream_turn(client, session_id, turn_input, events))
+
+
+def _stream_turn(client: TrueForge, session_id: str, turn_input: list, events: dict) -> list:
     """Stream one turn, print tool activity and costing breakdowns, and return pending approval events."""
     pending = []
     for event in client.sessions.create_turn_stream(session_id=session_id, input=turn_input):
@@ -72,7 +89,7 @@ def stream_turn(client: TrueForge, session_id: str, turn_input: list, events: di
         elif event.type == "turn.done":
             state = event.state
             if state.status != "done":
-                sys.exit(f"Turn ended with status {state.status}: {getattr(state, 'message', None) or getattr(state, 'reason', None)}")
+                raise pipeline.turn_error(state)
             if state.output is not None and state.output.content:
                 print(f"\nAgent:\n{state.output.content}")
     return pending
@@ -184,12 +201,23 @@ def main() -> None:
         sys.exit("Negotiation scenarios need the sandbox (DAYTONA_API_KEY).")
 
     client = TrueForge(base_url=os.environ.get("TRUEFORGE_BASE_URL") or "http://localhost:8790", timeout=600)
-    session_id = args.session or client.sessions.create(agent={"name": AGENT_NAME}).data.id
     enquiry = SCENARIOS[1 if negotiation else args.scenario]
-    print(f"Session {session_id}\n\nScenario {args.scenario} enquiry:\n{enquiry}")
+    print(f"Scenario {args.scenario} enquiry:\n{enquiry}")
 
+    # Extraction and validation run before the quote agent exists, so an incomplete spec reaches no tool.
+    raw, result = pipeline.extract_and_validate(client, enquiry)
+    print(f"\n=== Extraction (raw, untrusted) ===\n{raw}\n\n=== Validated in code ===")
+    print(json.dumps(result.spec, indent=2))
+    for a in result.assumptions:
+        print(f"Assumption: {a}")
+    if not result.ok:
+        print(f"\n=== Clarification for the customer ===\n{pipeline.clarification_reply(result)}")
+        sys.exit(0 if clarification_checks(args.scenario, result) else 1)
+
+    session_id = args.session or client.sessions.create(agent={"name": AGENT_NAME}).data.id
+    print(f"\nSession {session_id}")
     events: dict = {}
-    pending = stream_turn(client, session_id, [{"type": "user.message", "content": f"{enquiry}\n\n{QUOTE_ID_NOTE}"}], events)
+    pending = stream_turn(client, session_id, [{"type": "user.message", "content": pipeline.quote_message(enquiry, result, QUOTE_ID_NOTE)}], events)
 
     if negotiation:
         setup = gates(events, pending)
@@ -224,6 +252,8 @@ def main() -> None:
         checks.update(negotiation_checks(events, turn, first, args.scenario))
     else:
         checks.update(quote_checks(events, responses, called, sandbox, args.scenario))
+    if args.scenario == 6:
+        checks["extracted spec equals scenario 1 (200 x 100 x 8 mm, same ops and finish)"] = result.spec["items"] == S1_ITEMS
     ok = report(f"Scenario {args.scenario} checks", checks)
     print(f"\nScenario {args.scenario}: {'PASS' if ok else 'FAIL'} (tools run: {called})")
 
@@ -236,6 +266,18 @@ def main() -> None:
             ok = check_counter_offer_outcome(events, turn_start=mark, approved=args.approve) and ok
 
     sys.exit(0 if ok else 1)
+
+
+def clarification_checks(scenario: int, result) -> bool:
+    checks = {"stopped before the quote agent started (0 shop tool calls)": True}  # this path never opens a quote session
+    if scenario == 2:
+        checks["missing is exactly thickness"] = result.spec["missing"] == ["items[0].thickness_mm"]
+        checks["one thickness question for the customer"] = result.questions == [THICKNESS_QUESTION]
+    else:
+        checks[f"scenario {scenario} was expected to reach the quote agent"] = False
+    ok = report(f"Scenario {scenario} checks", checks)
+    print(f"\nScenario {scenario}: {'PASS' if ok else 'FAIL'}")
+    return ok
 
 
 def quote_checks(events: dict, responses: list, called: list, sandbox: bool, scenario: int) -> dict:
@@ -319,4 +361,7 @@ def check_scenario3_outcome(events: dict, approved: bool) -> bool:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except pipeline.TurnError as e:
+        sys.exit(str(e))
