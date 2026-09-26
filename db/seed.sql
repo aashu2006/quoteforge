@@ -1,7 +1,7 @@
 INSERT INTO materials (name, density_kg_m3, rate_per_kg, wastage_pct) VALUES
-('MS', 7850, 62, 0.05),
-('SS304', 8000, 230, 0.05),
-('AL', 2700, 280, 0.05);
+('MS', 7850, 62, 5),
+('SS304', 8000, 230, 5),
+('AL', 2700, 280, 5);
 
 INSERT INTO labour_rates (op, unit, rate) VALUES
 ('cutting', 'per_piece', 15),
@@ -15,7 +15,7 @@ INSERT INTO finishing_rates (type, rate_per_m2) VALUES
 ('galvanise', 250);
 
 INSERT INTO settings (overhead_pct, margin_pct, margin_floor_pct, gst_pct) VALUES
-(0.10, 0.20, 0.12, 0.18);
+(10, 20, 12, 18);
 
 INSERT INTO stock (material_id, thickness_mm, sheet_size, qty_kg) VALUES
 (1, 8, '1250x2500', 500),
