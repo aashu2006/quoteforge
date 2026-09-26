@@ -57,10 +57,11 @@ def stream_turn(client: TrueForge, session_id: str, turn_input: list, events: di
 
         if event.type == "tool.response":
             name, args = find_call(events, event.tool_call_id)
-            breakdown = find_breakdown(event.content)
-            if breakdown:
+            breakdowns = find_breakdowns(event.content)
+            if breakdowns:
                 print(f"\n-> {name}(...)")
-                print_breakdown(breakdown)
+                for breakdown in breakdowns:
+                    print_breakdown(breakdown)
             else:
                 print(f"\n-> {name}({args})\n<- {str(event.content)[:800]}")
         elif event.type == "tool.approval_required":
@@ -86,25 +87,30 @@ def find_call(events: dict, tool_call_id: str) -> tuple[str, str]:
     return "?", "?"
 
 
-def find_breakdown(content) -> dict | None:
-    """Pull a costing.py breakdown out of a sandbox tool response, however the harness wraps stdout."""
+def find_breakdowns(content) -> list[dict]:
+    """Pull every costing.py breakdown out of a sandbox tool response, however the harness wraps stdout.
+
+    One command can run costing.py more than once (e.g. --at-floor then --price-at-target).
+    """
     if isinstance(content, dict):
         if "line_items" in json.dumps(content) and "total" in content:
-            return content
-        return next((b for v in content.values() if (b := find_breakdown(v))), None)
+            return [content]
+        return [b for v in content.values() for b in find_breakdowns(v)]
     if isinstance(content, list):
-        return next((b for v in content if (b := find_breakdown(v))), None)
+        return [b for v in content for b in find_breakdowns(v)]
+    found = []
     if isinstance(content, str) and "line_items" in content:
         decoder = json.JSONDecoder()
-        for i, ch in enumerate(content):
-            if ch == "{":
-                try:
-                    found = find_breakdown(decoder.raw_decode(content, i)[0])
-                except ValueError:
-                    continue
-                if found:
-                    return found
-    return None
+        i = 0
+        while (i := content.find("{", i)) != -1:
+            try:
+                obj, end = decoder.raw_decode(content, i)
+            except ValueError:
+                i += 1
+                continue
+            found += find_breakdowns(obj)
+            i = end
+    return found
 
 
 def print_breakdown(b: dict) -> None:
@@ -236,7 +242,7 @@ def quote_checks(events: dict, responses: list, called: list, sandbox: bool, sce
     checks = {"rate card fetched": "get_rate_card" in called, "stock checked": "check_stock" in called}
     if sandbox:
         stock_kg = [json.loads(find_call(events, e.tool_call_id)[1]).get("kg_needed") for e in responses if find_call(events, e.tool_call_id)[0] == "check_stock"]
-        breakdowns = [b for e in responses if (b := find_breakdown(e.content))]
+        breakdowns = [b for e in responses for b in find_breakdowns(e.content)]
         checks["check_stock got kg_needed 65.94"] = 65.94 in stock_kg
         checks["costing.py breakdown total 9654.44"] = any(b["total"] == 9654.44 and b["self_check"]["passed"] for b in breakdowns)
         if scenario == 3:
@@ -264,7 +270,7 @@ def negotiation_checks(events: dict, turn: list, first: list, scenario: int) -> 
         "material and thickness unchanged (MS, 8 mm)": materials <= {"MS"} and thicknesses <= {8.0},
     }
     if scenario == 5:
-        at_target = [b for e in turn if e.type == "tool.response" and (b := find_breakdown(e.content)) and b.get("priced_at_target")]
+        at_target = [b for e in turn if e.type == "tool.response" for b in find_breakdowns(e.content) if b.get("priced_at_target")]
         checks["revised quote priced at target: total 9200.00"] = any(b["total"] == 9200 and b["self_check"]["passed"] for b in at_target)
         return checks
 
@@ -295,7 +301,7 @@ def check_scenario3_outcome(events: dict, approved: bool) -> bool:
     """After the gates: approve must send the quote priced at target; deny must keep the standard draft."""
     responses = [e for e in events.values() if e.type == "tool.response"]
     sent_at = next((i for i, e in enumerate(responses) if find_call(events, e.tool_call_id)[0] == "send_quote" and "sent" in str(e.content)), None)
-    at_target = [(i, b) for i, e in enumerate(responses) if (b := find_breakdown(e.content)) and b.get("priced_at_target")]
+    at_target = [(i, b) for i, e in enumerate(responses) for b in find_breakdowns(e.content) if b.get("priced_at_target")]
 
     if approved:
         before_send = [b for i, b in at_target if sent_at is not None and i < sent_at]
