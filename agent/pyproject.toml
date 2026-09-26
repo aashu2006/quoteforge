@@ -3,6 +3,7 @@ name = "quoteforge-agent"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "fpdf2>=2.8.8",
     "httpx>=0.28.1",
     "jsonschema>=4.26.0",
     "mcp>=2.2.0",

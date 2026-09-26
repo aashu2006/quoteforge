@@ -16,6 +16,9 @@ from dotenv import load_dotenv
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
+
+import pdf
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
@@ -90,6 +93,30 @@ def check_stock(material: str, thickness_mm: float, kg_needed: float | None = No
     available_kg = num(row["available_kg"])
     short_kg = None if kg_needed is None else max(0, kg_needed - available_kg)
     return {"available_kg": available_kg, "short_kg": short_kg}
+
+
+class QuoteInput(TypedDict):
+    customer: str | None
+    email: str
+    breakdown: dict
+    assumptions: list[str]
+
+
+@mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False))
+def make_quote_pdf(quote: QuoteInput) -> dict:
+    """Save the quote and render its one-page PDF. `breakdown` is the costing.py JSON exactly as printed; it is rejected if it does not add up. Returns the quote_id to use for send_quote."""
+    breakdown = quote["breakdown"]
+    pdf.check_breakdown(breakdown)
+    with connect() as conn:
+        row = conn.execute(
+            "INSERT INTO quotes (customer, breakdown_json, total, status) VALUES (%s, %s, %s, 'draft') RETURNING id",
+            (quote.get("customer") or "Customer", Jsonb(breakdown), breakdown["total"]),
+        ).fetchone()
+        quote_id = f"Q-{row['id']:04d}"
+        path = pdf.render(quote_id, quote.get("customer"), quote["email"], breakdown, quote.get("assumptions") or [])
+        pdf_path = str(path.relative_to(pdf.QUOTES_DIR.parent))
+        conn.execute("UPDATE quotes SET pdf_path = %s WHERE id = %s", (pdf_path, row["id"]))
+    return {"quote_id": quote_id, "pdf_path": pdf_path}
 
 
 @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True))

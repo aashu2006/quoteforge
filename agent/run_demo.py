@@ -52,8 +52,6 @@ REPLIES = {
 EXPECTED_FIRST_GATE = {1: "send_quote", 3: "request_margin_approval", 4: "send_counter_offer", 5: "send_quote", 6: "send_quote"}
 FLOOR_TOTAL = 9010.81
 
-# make_quote_pdf does not exist yet, so there is no real quote id; remove once it does.
-QUOTE_ID_NOTE = '[Demo run: use quote_id "Q-DEMO-001".]'
 
 
 def stream_turn(client: TrueForge, session_id: str, turn_input: list, events: dict) -> list:
@@ -217,7 +215,7 @@ def main() -> None:
     session_id = args.session or client.sessions.create(agent={"name": AGENT_NAME}).data.id
     print(f"\nSession {session_id}")
     events: dict = {}
-    pending = stream_turn(client, session_id, [{"type": "user.message", "content": pipeline.quote_message(enquiry, result, QUOTE_ID_NOTE)}], events)
+    pending = stream_turn(client, session_id, [{"type": "user.message", "content": pipeline.quote_message(enquiry, result)}], events)
 
     if negotiation:
         setup = gates(events, pending)
@@ -287,6 +285,8 @@ def quote_checks(events: dict, responses: list, called: list, sandbox: bool, sce
         breakdowns = [b for e in responses for b in find_breakdowns(e.content)]
         checks["check_stock got kg_needed 65.94"] = 65.94 in stock_kg
         checks["costing.py breakdown total 9654.44"] = any(b["total"] == 9654.44 and b["self_check"]["passed"] for b in breakdowns)
+        pdfs = [json.loads(str(e.content)) for e in responses if find_call(events, e.tool_call_id)[0] == "make_quote_pdf" and "pdf_path" in str(e.content)]
+        checks["quote PDF made before the send gate"] = scenario == 3 or bool(pdfs)
         if scenario == 3:
             checks["margin below floor (8.14%)"] = any(b["margin_check"]["effective_margin_pct"] == 8.14 for b in breakdowns)
     return checks
