@@ -15,6 +15,8 @@ uv run --project . pytest ../sandbox/tests   # costing and nesting tests
 uv run warmup.py                   # before a live demo: warm a sandbox, then run_demo.py --session <id>
 ```
 
+- New enquiries go through `pipeline.py`: the `quoteforge-extract` agent (no tools, strict JSON schema) transcribes the enquiry, `spec.py` validates it in code against `schemas/spec.schema.json`, and missing or invalid fields become customer questions before the quote agent starts. Scenario 2 (missing thickness) and 6 (Hinglish, mixed units) exercise this.
+- Model API timeouts are retried up to 2 times per turn, logged as `API retry`.
 - Model provider is `MODEL_PROVIDER` in `.env` (`openai` or `truefoundry`). To switch to the TrueFoundry gateway, set it to `truefoundry`, fill `TFY_*`, and re-run `setup.py`.
 - Tools come from the MCP server at `TOOLS_MCP_URL`. To use the real tools, point it at that server and re-run `setup.py`.
 - `send_quote`, `create_po` and `request_margin_approval` always need approval (annotated destructive, and named in `require_approval_for_tools`).
