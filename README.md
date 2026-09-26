@@ -41,6 +41,8 @@ It starts, in order and each behind a health check: Postgres (Docker, seeded fro
 
 Open http://localhost:3000, pick a demo enquiry and press **Start quote**. Nothing is sent until you approve it at a gate.
 
+Each quote gets its own Daytona sandbox, and stopped ones count against the 30 GiB disk quota until archived. `start_all.sh` archives them first; run `cd agent && uv run cleanup_sandboxes.py` before a demo if the stack is already up.
+
 ### Check it
 
 ```bash

@@ -57,6 +57,11 @@ done
 docker info >/dev/null 2>&1 || fail "Docker is not running. Start Docker Desktop first."
 [ -n "${DAYTONA_API_KEY:-}" ] || echo "  Note: DAYTONA_API_KEY is empty, so the agent runs without a sandbox and cannot price quotes."
 
+if [ -n "${DAYTONA_API_KEY:-}" ]; then
+  say "0b. Archiving idle Daytona sandboxes (frees the disk quota)"
+  (cd "$ROOT/agent" && uv run cleanup_sandboxes.py) || echo "  Warning: sandbox cleanup failed; continuing."
+fi
+
 say "1. Postgres (Docker)"
 docker compose -f "$ROOT/db/docker-compose.yml" --env-file "$ROOT/.env" up -d >"$LOGS/postgres.log" 2>&1
 wait_for Postgres 60 docker compose -f "$ROOT/db/docker-compose.yml" --env-file "$ROOT/.env" exec -T db pg_isready -U "${POSTGRES_USER:-quoteforge}"
