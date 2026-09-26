@@ -82,7 +82,7 @@ def build_spec(model_fqn: str, params: dict, sandbox: bool) -> dict:
                 "name": TOOLS_SERVER,
                 "enable_tools": ["@all"],
                 # Named explicitly so the gate holds even if a server drops its annotations.
-                "require_approval_for_tools": ["@destructive", "send_quote", "create_po", "request_margin_approval"],
+                "require_approval_for_tools": ["@destructive", "send_quote", "send_counter_offer", "create_po", "request_margin_approval"],
                 "preload": True,
             }
         ],

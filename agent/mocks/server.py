@@ -6,6 +6,7 @@ Run: uv run mocks/server.py [--port 8801]
 
 import argparse
 import sys
+from typing import TypedDict
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
@@ -59,6 +60,20 @@ def request_margin_approval(quote_id: str, margin_pct: float, margin_floor_pct: 
     """Ask the owner to approve a quote whose margin is below the floor. Call this whenever costing reports margin below floor."""
     print(f"[mock] request_margin_approval quote_id={quote_id} margin_pct={margin_pct} floor={margin_floor_pct}", file=sys.stderr)
     return {"status": "approved"}
+
+
+class CounterOption(TypedDict):
+    label: str
+    changes: str
+    total: float
+    unit_price: float
+
+
+@mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, open_world_hint=True))
+def send_counter_offer(quote_id: str, email: str, options: list[CounterOption], message: str) -> dict:
+    """Send a counter-offer to the customer: a short message and the priced options. Irreversible: offered prices are commitments."""
+    print(f"[mock] send_counter_offer quote_id={quote_id} email={email} options={len(options)}", file=sys.stderr)
+    return {"status": "sent"}
 
 
 @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, open_world_hint=True))
