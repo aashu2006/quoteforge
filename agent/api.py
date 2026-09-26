@@ -2,6 +2,7 @@
 
 Run: echo '{"enquiry": "..."}' | uv run api.py start
      echo '{"session_id": "...", "decision": "allow"}' | uv run api.py decide
+     echo '{"session_id": "...", "message": "Can you do it for Rs 7,500?"}' | uv run api.py reply
 Prints one JSON object on stdout (contract in docs/DESIGN.md, "UI API"). Diagnostics go to stderr.
 The pending gate is always read back from TrueForge, never taken from the caller.
 """
@@ -28,12 +29,21 @@ def log(msg: str) -> None:
     print(msg, file=sys.stderr)
 
 
-def run_turn(client: TrueForge, session_id: str, turn_input: list) -> None:
+def run_turn(client: TrueForge, session_id: str, turn_input: list, retry: bool = True) -> None:
     def consume() -> None:
         for event in client.sessions.create_turn_stream(session_id=session_id, input=turn_input):
             if event.type == "turn.done" and event.state.status != "done":
                 raise pipeline.turn_error(event.state)
-    pipeline.with_api_retry(consume, log=log)
+    pipeline.with_api_retry(consume, log=log) if retry else consume()
+
+
+def run_turn_then_state(client: TrueForge, session_id: str, turn_input: list, retry: bool = True) -> dict:
+    """Run a turn; if it fails, still report the real state (a gated tool may already have run, e.g. a send)."""
+    try:
+        run_turn(client, session_id, turn_input, retry)
+    except (pipeline.TurnError, httpx.TransportError) as e:
+        log(f"turn failed: {e}")
+    return state(session_id)
 
 
 def fetch_events(session_id: str) -> list[dict]:
@@ -108,8 +118,7 @@ def start(req: dict) -> dict:
     if not result.ok:
         return {**base, "status": "needs_clarification", "questions": result.questions, "reply": pipeline.clarification_reply(result)}
     session_id = client.sessions.create(agent={"name": pipeline.QUOTE_AGENT_NAME}).data.id
-    run_turn(client, session_id, [{"type": "user.message", "content": pipeline.quote_message(enquiry, result)}])
-    return {**base, **state(session_id)}
+    return {**base, **run_turn_then_state(client, session_id, [{"type": "user.message", "content": pipeline.quote_message(enquiry, result)}])}
 
 
 def decide(req: dict) -> dict:
@@ -121,20 +130,35 @@ def decide(req: dict) -> dict:
         return {**current, "status": "error", "error": "no approval is pending for this session"}
     approval = {"status": "allow"} if decision == "allow" else {"status": "deny", "reason": req.get("reason") or "Owner rejected; keep as draft."}
     done = next(e for e in reversed(fetch_events(session_id)) if e["type"] == "turn.done")
-    run_turn(TrueForge(base_url=BASE_URL, timeout=600), session_id, [
+    # No automatic retry: once approved, the gated tool may already have run before a later model timeout.
+    return run_turn_then_state(TrueForge(base_url=BASE_URL, timeout=600), session_id, [
         {"type": "user.tool_approval", "thread_id": a["thread_id"], "tool_call_id": ref["id"], "approval": approval}
         for a in done["state"]["required_actions"] if a["type"] == "tool.approval_required" for ref in a["tool_calls"]
-    ])
-    return state(session_id)
+    ], retry=False)
+
+
+def reply(req: dict) -> dict:
+    """A customer's reply to a sent quote, into the same session (negotiation lives there)."""
+    session_id, message = req.get("session_id"), (req.get("message") or "").strip()
+    if not session_id or not message:
+        return {"status": "error", "error": "session_id and message are required"}
+    current = state(session_id)
+    if current["status"] == "gate":
+        return {**current, "status": "error", "error": "answer the pending approval before sending a customer reply"}
+    return run_turn_then_state(TrueForge(base_url=BASE_URL, timeout=600), session_id,
+                               [{"type": "user.message", "content": f"Customer replied: {message}"}])
+
+
+COMMANDS = {"start": start, "decide": decide, "reply": reply}
 
 
 def main() -> int:
     command = sys.argv[1] if len(sys.argv) > 1 else ""
-    if command not in ("start", "decide"):
-        print(json.dumps({"status": "error", "error": "usage: api.py start|decide < request.json"}))
+    if command not in COMMANDS:
+        print(json.dumps({"status": "error", "error": "usage: api.py start|decide|reply < request.json"}))
         return 2
     try:
-        out = (start if command == "start" else decide)(json.load(sys.stdin))
+        out = COMMANDS[command](json.load(sys.stdin))
     except Exception as e:  # the UI always gets JSON back
         out = {"status": "error", "error": f"{type(e).__name__}: {e}"}
     print(json.dumps(out))

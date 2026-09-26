@@ -41,6 +41,21 @@ function callAgent(command, payload) {
     });
 }
 
+// One agent call per session at a time: a double click must not answer the same gate twice.
+const busySessions = new Set();
+async function callForSession(res, sessionId, command, payload) {
+    if (busySessions.has(sessionId)) {
+        return res.status(409).json({ status: 'error', error: 'This quote is already being processed. Wait for it to finish.' });
+    }
+    busySessions.add(sessionId);
+    try {
+        const { httpStatus, body } = await callAgent(command, payload);
+        res.status(httpStatus).json(body);
+    } finally {
+        busySessions.delete(sessionId);
+    }
+}
+
 // POST /api/quote {enquiry}: extract, validate, and run the agent to its first approval gate.
 app.post('/api/quote', async (req, res) => {
     const { enquiry } = req.body || {};
@@ -55,8 +70,16 @@ app.post('/api/decision', async (req, res) => {
     if (!session_id || !['allow', 'deny'].includes(decision)) {
         return res.status(400).json({ status: 'error', error: 'session_id and decision (allow|deny) are required' });
     }
-    const { httpStatus, body } = await callAgent('decide', { session_id, decision, reason });
-    res.status(httpStatus).json(body);
+    await callForSession(res, session_id, 'decide', { session_id, decision, reason });
+});
+
+// POST /api/reply {session_id, message}: a customer's reply to a sent quote, into the same session.
+app.post('/api/reply', async (req, res) => {
+    const { session_id, message } = req.body || {};
+    if (!session_id || !message || !message.trim()) {
+        return res.status(400).json({ status: 'error', error: 'session_id and message are required' });
+    }
+    await callForSession(res, session_id, 'reply', { session_id, message });
 });
 
 const PORT = process.env.PORT || 3000;

@@ -438,10 +438,21 @@
         <div class="gate send-gate" id="gateCounter">
             <h4>Counter-offer ready</h4>
             <p id="gateCounterMsg" style="white-space: pre-wrap;"></p>
-            <ul id="gateCounterOptions"></ul>
+            <table id="gateCounterOptions" style="width:100%; border-collapse:collapse; font-size:12px; margin:8px 0;"></table>
             <div class="gate-btns">
                 <button class="btn-ok" onclick="decide('allow')">Send counter-offer</button>
                 <button class="btn-cancel" onclick="decide('deny')">Don't send</button>
+            </div>
+        </div>
+
+        <div class="gate send-gate" id="replyBox">
+            <h4>Customer reply</h4>
+            <p>Paste what the customer wrote back about this quote. The agent continues in the same conversation.</p>
+            <textarea id="replyText" style="width:100%; min-height:60px; margin:6px 0;" placeholder="e.g. Thanks for the quote. Can you do it for Rs 7,500?"></textarea>
+            <div class="gate-btns" style="flex-wrap:wrap;">
+                <button class="btn-cancel" onclick="fillReply('Thanks for the quote. Can you do it for Rs 7,500?')">Rs 7,500?</button>
+                <button class="btn-cancel" onclick="fillReply('Thanks for the quote. Can you do it for Rs 9,200?')">Rs 9,200?</button>
+                <button class="btn-ok" onclick="sendReply()">Send reply to agent</button>
             </div>
         </div>
 
@@ -499,6 +510,8 @@
     };
     const GATE_IDS = ['gateMargin', 'gateSend', 'gateCounter', 'gateClarify'];
     let sessionId = null;
+    let quoteSent = false;  // something really went to the customer in this conversation
+    let lastGateKind = null;
 
     function loadScenario(n) {
         document.getElementById('enquiryText').value = SCENARIOS[n];
@@ -524,6 +537,7 @@
 
     function showGate(id) {
         GATE_IDS.forEach(g => { document.getElementById(g).style.display = (g === id) ? 'block' : 'none'; });
+        document.getElementById('replyBox').style.display = 'none';
     }
 
     function setBusy(busy, label) {
@@ -594,7 +608,12 @@
 
     function render(data) {
         (data.logs || []).forEach(l => addLog(l, l.includes('rejected') ? 'warning' : ''));
-        renderBreakdown(data.breakdown, data.quote);
+        // During a counter-offer the latest breakdown is a floor-price working, not the quote on file;
+        // keep showing the sent quote (and its PDF) and let the options table carry the new prices.
+        const counterOffer = (data.gate && data.gate.kind === 'counter_offer') || lastGateKind === 'counter_offer';
+        if (!counterOffer) renderBreakdown(data.breakdown, data.quote);
+        lastGateKind = data.status === 'gate' ? data.gate.kind : null;
+        document.getElementById('finalSection').style.display = 'none';  // only a finished turn has a summary
 
         if (data.status === 'needs_clarification') {
             sessionId = null;
@@ -611,8 +630,19 @@
                 showGate('gateMargin');
             } else if (data.gate.kind === 'counter_offer') {
                 document.getElementById('gateCounterMsg').textContent = a.message || '';
-                document.getElementById('gateCounterOptions').replaceChildren(
-                    ...(a.options || []).map(o => el('li', `${o.label}: ${o.changes} · ${rs(o.total)} (${rs(o.unit_price)}/pc before GST)`)));
+                const head = el('tr');
+                ['Option', 'Change', 'Total', 'Per piece (before GST)'].forEach(h => head.append(el('th', h)));
+                const rows = (a.options || []).map(o => {
+                    const tr = el('tr');
+                    [o.label, o.changes, rs(o.total), rs(o.unit_price)].forEach((v, i) => {
+                        const td = el('td', v);
+                        td.style.cssText = 'border-top:1px solid #E5E4E0; padding:4px;' + (i >= 2 ? 'text-align:right; white-space:nowrap;' : '');
+                        tr.append(td);
+                    });
+                    return tr;
+                });
+                head.querySelectorAll('th').forEach((th, i) => { th.style.cssText = 'padding:4px;' + (i >= 2 ? 'text-align:right;' : 'text-align:left;'); });
+                document.getElementById('gateCounterOptions').replaceChildren(head, ...rows);
                 showGate('gateCounter');
             } else {
                 document.getElementById('gateSendMsg').textContent =
@@ -621,12 +651,15 @@
             }
             addLog(`Paused for your approval (${data.gate.tool}).`, 'warning');
         } else if (data.status === 'done') {
-            sessionId = null;
             showGate(null);
             // Only claim a send when the send tool itself reported it.
             if (data.sent && data.sent.quote) addLog(`Sent: quote ${data.quote ? data.quote.quote_id : ''} went to the customer.`, 'success');
             else if (data.sent && data.sent.counter_offer) addLog('Sent: counter-offer went to the customer.', 'success');
-            else addLog('Nothing was sent. The quote is kept as a draft.', 'warning');
+            else addLog('Nothing was sent this time.', 'warning');
+            if (data.sent && (data.sent.quote || data.sent.counter_offer)) quoteSent = true;
+            // Keep the conversation open for a customer reply once something was sent.
+            sessionId = quoteSent ? data.session_id : null;
+            document.getElementById('replyBox').style.display = quoteSent ? 'block' : 'none';
             if (data.message) {
                 document.getElementById('finalSection').style.display = 'block';
                 document.getElementById('finalMessage').textContent = data.message;
@@ -634,6 +667,14 @@
         } else {
             showGate(null);
             addLog('Something went wrong: ' + (data.error || 'unknown error'), 'error');
+            // A failed turn can still have run an approved send; report what the tool actually did.
+            if (data.sent && data.sent.quote) addLog(`Sent before the error: quote ${data.quote ? data.quote.quote_id : ''} went to the customer.`, 'success');
+            if (data.sent && data.sent.counter_offer) addLog('Sent before the error: counter-offer went to the customer.', 'success');
+            if (data.sent && (data.sent.quote || data.sent.counter_offer)) {
+                quoteSent = true;
+                sessionId = data.session_id;
+                document.getElementById('replyBox').style.display = 'block';
+            }
         }
     }
 
@@ -647,6 +688,8 @@
         if (!enquiry) { alert('Please type or paste a customer request first.'); return; }
 
         sessionId = null;
+        quoteSent = false;
+        lastGateKind = null;
         document.getElementById('liveLog').innerHTML = '';
         document.getElementById('emptyState').style.display = 'flex';
         document.getElementById('resultPanel').style.display = 'none';
@@ -656,6 +699,26 @@
         setBusy(true, 'Working...');
         try {
             render(await post('/api/quote', { enquiry }));
+        } catch (err) {
+            addLog('Something went wrong: ' + err.message, 'error');
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    function fillReply(text) {
+        document.getElementById('replyText').value = text;
+    }
+
+    async function sendReply() {
+        const message = document.getElementById('replyText').value.trim();
+        if (!sessionId || !message) return;
+        addLog('Customer replied: ' + message);
+        document.getElementById('replyText').value = '';
+        showGate(null);
+        setBusy(true, 'Working...');
+        try {
+            render(await post('/api/reply', { session_id: sessionId, message }));
         } catch (err) {
             addLog('Something went wrong: ' + err.message, 'error');
         } finally {

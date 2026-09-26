@@ -255,7 +255,7 @@ Money is rounded to paise per line, so line items add up exactly to every total.
 
 ### UI API (`agent/api.py`, called by `server.js`)
 
-`POST /api/quote {enquiry}` runs `api.py start`; `POST /api/decision {session_id, decision: "allow"|"deny", reason?}` runs `api.py decide`. Both return one JSON object:
+`POST /api/quote {enquiry}` runs `api.py start`; `POST /api/decision {session_id, decision: "allow"|"deny", reason?}` runs `api.py decide`; `POST /api/reply {session_id, message}` runs `api.py reply`, which sends a customer's reply to a sent quote into the same session (negotiation: counter-offer gate or a revised send gate). All three return one JSON object:
 
 ```json
 {
@@ -275,7 +275,7 @@ Money is rounded to paise per line, so line items add up exactly to every total.
 }
 ```
 
-`questions`/`reply` come only with `needs_clarification` (no agent session exists then). `gate` comes only with `gate`, read back from TrueForge's pending approvals. `sent` is true only when the send tool actually returned `"sent"`; the UI must not show "Sent" otherwise.
+`questions`/`reply` come only with `needs_clarification` (no agent session exists then). `gate` comes only with `gate`, read back from TrueForge's pending approvals. `sent` is true only when the send tool actually returned `"sent"`; the UI must not show "Sent" otherwise. If a turn fails after a gate was approved, the response is still the real session state (`status: "error"` with `sent` filled in), so a send that already happened is reported. Approval turns are never retried automatically, and the server handles one request per session at a time (a second gets 409).
 
 ### Agent states
 
