@@ -400,10 +400,10 @@
                 <span class="scenario-tag tag-yellow">Missing info</span>Thickness not mentioned
             </button>
             <button class="scenario-btn" onclick="loadScenario(3)">
-                <span class="scenario-tag tag-red">Low margin</span>Customer asks for a lower price
+                <span class="scenario-tag tag-red">Low margin</span>Customer budget below the margin floor
             </button>
             <button class="scenario-btn" onclick="loadScenario(4)">
-                <span class="scenario-tag tag-blue">Low stock</span>SS304 stock is limited
+                <span class="scenario-tag tag-blue">Hinglish</span>Messy enquiry with mixed units
             </button>
         </div>
 
@@ -416,28 +416,39 @@
             <div class="log-box" id="liveLog">Waiting for a request...</div>
         </div>
 
-        <!-- Gates -->
+        <!-- Gates: shown only when the agent is actually paused at that approval -->
         <div class="gate margin-gate" id="gateMargin">
-            <h4>Margin is too low</h4>
-            <p id="gateMarginMsg">The profit on this quote is below your 12% limit. You can approve it anyway or reject it.</p>
+            <h4>Margin is below your floor</h4>
+            <p id="gateMarginMsg"></p>
             <div class="gate-btns">
-                <button class="btn-ok" onclick="handleGate('approve_margin')">Approve anyway</button>
-                <button class="btn-cancel" onclick="handleGate('reject')">Reject</button>
+                <button class="btn-ok" onclick="decide('allow')">Approve anyway</button>
+                <button class="btn-cancel" onclick="decide('deny')">Reject</button>
             </div>
         </div>
 
         <div class="gate send-gate" id="gateSend">
             <h4>Ready to send</h4>
-            <p id="gateSendMsg">The quote looks good. Send it to the customer or save it as a draft.</p>
+            <p id="gateSendMsg"></p>
             <div class="gate-btns">
-                <button class="btn-ok" onclick="handleGate('approve_send')">Send quote</button>
-                <button class="btn-cancel" onclick="handleGate('save_draft')">Save as draft</button>
+                <button class="btn-ok" onclick="decide('allow')">Send quote</button>
+                <button class="btn-cancel" onclick="decide('deny')">Keep as draft</button>
+            </div>
+        </div>
+
+        <div class="gate send-gate" id="gateCounter">
+            <h4>Counter-offer ready</h4>
+            <p id="gateCounterMsg" style="white-space: pre-wrap;"></p>
+            <ul id="gateCounterOptions"></ul>
+            <div class="gate-btns">
+                <button class="btn-ok" onclick="decide('allow')">Send counter-offer</button>
+                <button class="btn-cancel" onclick="decide('deny')">Don't send</button>
             </div>
         </div>
 
         <div class="gate clarify-gate" id="gateClarify">
-            <h4>Need more info</h4>
-            <p id="gateClarifyMsg"></p>
+            <h4>Need more info from the customer</h4>
+            <p>Send these questions to the customer. No rates, stock or prices were touched.</p>
+            <ol id="gateClarifyList"></ol>
         </div>
 
     </div>
@@ -461,10 +472,16 @@
 
             <!-- Cost breakdown -->
             <div class="result-section">
-                <div class="result-title">Cost breakdown</div>
+                <div class="result-title">Cost breakdown <span style="font-weight:400; color:#6B6B6B;">(from costing.py in the sandbox)</span></div>
                 <div class="cost-table" id="costTable"></div>
                 <div id="marginBadge"></div>
-                <div class="stock-note" id="stockNote"></div>
+                <div class="stock-note" id="pdfLink"></div>
+            </div>
+
+            <!-- Agent's final message -->
+            <div class="result-section" id="finalSection" style="display:none;">
+                <div class="result-title">Agent summary</div>
+                <div id="finalMessage" style="white-space: pre-wrap; font-size: 13px; line-height: 1.5;"></div>
             </div>
 
         </div>
@@ -475,153 +492,187 @@
 
 <script>
     const SCENARIOS = {
-        1: "Hi, please quote for 50 MS brackets, 200x100x8 mm, powder coated.",
-        2: "Need a price for 50 MS brackets, 200x100 mm, powder coated.",
-        3: "Hi, please quote for 50 MS brackets, 200x100x8 mm, powder coated. My target price is Rs 4500 total, can you match it?",
-        4: "Need 100 SS304 sheets cut to 500x500x5 mm, unpainted."
+        1: "From: Rakesh Sharma, Sharma Industries <purchase@sharma-industries.example>\n\nHi, please quote for 50 nos MS L brackets, 200 x 100 x 8 mm, 1 bend and 2 holes each, powder coated.\nDelivery needed in 2 weeks.",
+        2: "From: Rakesh Sharma, Sharma Industries <purchase@sharma-industries.example>\n\nHi, please quote for 50 nos MS L brackets, 200 x 100 mm, 1 bend and 2 holes each, powder coated.\nDelivery needed in 2 weeks.",
+        3: "From: Rakesh Sharma, Sharma Industries <purchase@sharma-industries.example>\n\nHi, please quote for 50 nos MS L brackets, 200 x 100 x 8 mm, 1 bend and 2 holes each, powder coated.\nOur budget is Rs 8,700 for the full order, all inclusive of GST. Delivery needed in 2 weeks.",
+        4: "From: Rakesh Sharma, Sharma Industries <purchase@sharma-industries.example>\n\nbhai 50 pcs L bracket chahiye, MS, 20cm x 10cm, 8mm plate, powder coating karke, 2 hole"
     };
+    const GATE_IDS = ['gateMargin', 'gateSend', 'gateCounter', 'gateClarify'];
+    let sessionId = null;
 
     function loadScenario(n) {
         document.getElementById('enquiryText').value = SCENARIOS[n];
     }
 
+    function rs(x) {
+        return 'Rs ' + Number(x).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function el(tag, text, className) {
+        const node = document.createElement(tag);
+        if (text !== undefined) node.textContent = text;
+        if (className) node.className = className;
+        return node;
+    }
+
     function addLog(text, type = '') {
         const box = document.getElementById('liveLog');
         if (box.textContent === 'Waiting for a request...') box.innerHTML = '';
-        const line = document.createElement('div');
-        line.className = 'log-line ' + type;
-        line.textContent = text;
-        box.appendChild(line);
+        box.appendChild(el('div', text, 'log-line ' + type));
         box.scrollTop = box.scrollHeight;
     }
 
     function showGate(id) {
-        ['gateMargin', 'gateSend', 'gateClarify'].forEach(g => {
-            document.getElementById(g).style.display = (g === id) ? 'block' : 'none';
-        });
+        GATE_IDS.forEach(g => { document.getElementById(g).style.display = (g === id) ? 'block' : 'none'; });
     }
 
-    function hideGates() {
-        ['gateMargin', 'gateSend', 'gateClarify'].forEach(g => {
-            document.getElementById(g).style.display = 'none';
-        });
+    function setBusy(busy, label) {
+        const btn = document.getElementById('startBtn');
+        btn.disabled = busy;
+        btn.innerHTML = busy ? '<span class="spinner"></span>' + label : 'Start quote';
+        document.querySelectorAll('.gate-btns button').forEach(b => { b.disabled = busy; });
     }
 
-    function handleGate(action) {
-        hideGates();
-        const msgs = {
-            approve_send:   'Sent! Quote has gone to the customer.',
-            save_draft:     'Saved as a draft.',
-            reject:         'Quote rejected.',
-            approve_margin: 'Margin approved. Generating quote...'
-        };
-        const types = {
-            approve_send: 'success', save_draft: 'warning',
-            reject: 'error', approve_margin: 'warning'
-        };
-        addLog(msgs[action], types[action]);
-        document.getElementById('startBtn').disabled = false;
+    function tile(label, value) {
+        const t = el('div', undefined, 'spec-tile');
+        t.append(el('div', label, 'label'), el('div', value, 'value'));
+        return t;
     }
 
-    function renderResults(costing) {
+    function costRow(name, amount, extraClass) {
+        const row = el('div', undefined, 'cost-row' + (extraClass ? ' ' + extraClass : ''));
+        row.append(el('span', name, 'name'), el('span', rs(amount), 'amt'));
+        return row;
+    }
+
+    function renderBreakdown(b, quote) {
+        if (!b) return;
         document.getElementById('emptyState').style.display = 'none';
         document.getElementById('resultPanel').style.display = 'block';
 
-        // Specs
-        document.getElementById('specGrid').innerHTML = `
-            <div class="spec-tile"><div class="label">Material</div><div class="value">${costing.material}</div></div>
-            <div class="spec-tile"><div class="label">Quantity</div><div class="value">${costing.qty} pieces</div></div>
-            <div class="spec-tile"><div class="label">Weight per piece</div><div class="value">${costing.weight_per_piece_kg} kg</div></div>
-            <div class="spec-tile"><div class="label">Total weight</div><div class="value">${costing.total_weight_kg} kg</div></div>
-        `;
+        const item = b.items[0];
+        const grid = document.getElementById('specGrid');
+        grid.replaceChildren(
+            tile('Material', `${item.material} ${item.dimensions_mm.join(' x ')} mm`),
+            tile('Quantity', `${item.qty} pieces`),
+            tile('Weight per piece', `${item.weight_kg_per_piece} kg`),
+            tile('Stock needed', `${item.kg_needed} kg`)
+        );
 
-        // Nesting
-        const n = costing.nesting;
+        const n = item.nesting;
         const nestRow = document.getElementById('nestingRow');
         nestRow.style.display = 'flex';
-        nestRow.innerHTML = `
-            Nesting: <span>${n.parts_per_sheet} parts</span> fit per sheet &nbsp;|&nbsp;
-            <span>${n.sheets_needed} sheet${n.sheets_needed > 1 ? 's' : ''}</span> needed &nbsp;|&nbsp;
-            <span>${n.real_scrap_pct}% scrap</span>
-        `;
+        nestRow.textContent = `Nesting: ${n.parts_per_sheet} parts fit per sheet | ${n.sheets_needed} sheet${n.sheets_needed > 1 ? 's' : ''} needed | ${n.scrap_pct}% scrap`;
 
-        // Cost breakdown
-        const b = costing.breakdown;
-        document.getElementById('costTable').innerHTML = `
-            <div class="cost-row"><span class="name">Material</span><span class="amt">Rs ${b.material_cost.toLocaleString()}</span></div>
-            <div class="cost-row"><span class="name">Labour</span><span class="amt">Rs ${b.labour_cost.toLocaleString()}</span></div>
-            <div class="cost-row"><span class="name">Finishing</span><span class="amt">Rs ${b.finish_cost.toLocaleString()}</span></div>
-            <div class="cost-row"><span class="name">Overhead (10%)</span><span class="amt">Rs ${b.overhead.toLocaleString()}</span></div>
-            <div class="cost-row"><span class="name">Margin (20%)</span><span class="amt">Rs ${b.margin.toLocaleString()}</span></div>
-            <div class="cost-row"><span class="name">GST (18%)</span><span class="amt">Rs ${b.gst.toLocaleString()}</span></div>
-            <div class="cost-row total"><span>Total</span><span class="amt">Rs ${b.total.toLocaleString()}</span></div>
-        `;
+        const table = document.getElementById('costTable');
+        table.replaceChildren();
+        b.items.forEach(it => it.line_items.forEach(line => table.append(costRow(`${line.label}: ${line.detail}`, line.amount))));
+        table.append(
+            costRow(`Overhead (${b.overhead.pct}%)`, b.overhead.amount),
+            costRow(`Margin (${b.margin.pct}%)`, b.margin.amount),
+            costRow(`GST (${b.gst.pct}%)`, b.gst.amount),
+            costRow('Total', b.total, 'total')
+        );
 
-        // Margin badge
-        const m = costing.margin_check;
-        const cls = m.passed ? (m.achieved_pct > 18 ? 'good' : 'warn') : 'bad';
-        const icon = m.passed ? '✓' : '✗';
-        document.getElementById('marginBadge').innerHTML =
-            `<div class="margin-badge ${cls}">${icon} Margin: ${m.achieved_pct}% (floor is ${m.floor_pct}%)</div>`;
+        const m = b.margin_check;
+        const pct = b.priced_at_target ? b.margin.pct : (m.effective_margin_pct ?? b.margin.pct);
+        const cls = !b.self_check.passed ? 'bad' : (m.below_floor ? 'warn' : 'good');
+        const label = `${b.self_check.passed ? '✓ Self-check passed' : '✗ Self-check failed'} · Margin ${pct}% (floor ${m.margin_floor_pct}%)`
+            + (b.priced_at_target ? ' · priced at customer target' : '') + (b.priced_at_floor ? ' · at floor' : '');
+        const badge = document.getElementById('marginBadge');
+        badge.replaceChildren(el('div', label, 'margin-badge ' + cls));
 
-        // Stock note
-        const sc = costing.stock;
-        const stockClass = sc.short_kg === 0 ? 'ok' : 'low';
-        document.getElementById('stockNote').innerHTML =
-            `Stock: <span class="${stockClass}">${sc.status}</span>`;
+        const pdf = document.getElementById('pdfLink');
+        pdf.replaceChildren();
+        if (quote && quote.pdf_path) {
+            const a = el('a', `Download quote ${quote.quote_id} (PDF)`);
+            a.href = '/' + quote.pdf_path;
+            a.target = '_blank';
+            pdf.append(a);
+        }
+    }
+
+    function render(data) {
+        (data.logs || []).forEach(l => addLog(l, l.includes('rejected') ? 'warning' : ''));
+        renderBreakdown(data.breakdown, data.quote);
+
+        if (data.status === 'needs_clarification') {
+            sessionId = null;
+            const list = document.getElementById('gateClarifyList');
+            list.replaceChildren(...data.questions.map(q => el('li', q)));
+            showGate('gateClarify');
+            addLog('Stopped before any tool call: the enquiry is missing required details.', 'warning');
+        } else if (data.status === 'gate') {
+            sessionId = data.session_id;
+            const a = data.gate.args || {};
+            if (data.gate.kind === 'margin') {
+                document.getElementById('gateMarginMsg').textContent =
+                    `Margin would be ${a.margin_pct}%, below your ${a.margin_floor_pct}% floor. ${a.reason || ''}`;
+                showGate('gateMargin');
+            } else if (data.gate.kind === 'counter_offer') {
+                document.getElementById('gateCounterMsg').textContent = a.message || '';
+                document.getElementById('gateCounterOptions').replaceChildren(
+                    ...(a.options || []).map(o => el('li', `${o.label}: ${o.changes} · ${rs(o.total)} (${rs(o.unit_price)}/pc before GST)`)));
+                showGate('gateCounter');
+            } else {
+                document.getElementById('gateSendMsg').textContent =
+                    `Quote ${a.quote_id} is ready for ${a.email}. Nothing goes out until you press Send.`;
+                showGate('gateSend');
+            }
+            addLog(`Paused for your approval (${data.gate.tool}).`, 'warning');
+        } else if (data.status === 'done') {
+            sessionId = null;
+            showGate(null);
+            // Only claim a send when the send tool itself reported it.
+            if (data.sent && data.sent.quote) addLog(`Sent: quote ${data.quote ? data.quote.quote_id : ''} went to the customer.`, 'success');
+            else if (data.sent && data.sent.counter_offer) addLog('Sent: counter-offer went to the customer.', 'success');
+            else addLog('Nothing was sent. The quote is kept as a draft.', 'warning');
+            if (data.message) {
+                document.getElementById('finalSection').style.display = 'block';
+                document.getElementById('finalMessage').textContent = data.message;
+            }
+        } else {
+            showGate(null);
+            addLog('Something went wrong: ' + (data.error || 'unknown error'), 'error');
+        }
+    }
+
+    async function post(url, body) {
+        const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        return resp.json();
     }
 
     async function startQuote() {
         const enquiry = document.getElementById('enquiryText').value.trim();
         if (!enquiry) { alert('Please type or paste a customer request first.'); return; }
 
-        // Reset
-        document.getElementById('startBtn').disabled = true;
-        document.getElementById('startBtn').innerHTML = '<span class="spinner"></span>Working...';
+        sessionId = null;
         document.getElementById('liveLog').innerHTML = '';
         document.getElementById('emptyState').style.display = 'flex';
         document.getElementById('resultPanel').style.display = 'none';
-        hideGates();
-
-        addLog('Got the request. Starting...');
-
+        document.getElementById('finalSection').style.display = 'none';
+        showGate(null);
+        addLog('Got the request. Checking the spec, then costing in the sandbox (up to a minute)...');
+        setBusy(true, 'Working...');
         try {
-            const resp = await fetch('/api/quote', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ enquiry })
-            });
-            const data = await resp.json();
-
-            (data.logs || []).forEach(l => {
-                const isWarn = l.toLowerCase().includes('margin') || l.toLowerCase().includes('stock');
-                addLog(l, isWarn ? 'warning' : '');
-            });
-
-            if (data.status === 'NeedsClarification') {
-                document.getElementById('gateClarifyMsg').textContent = data.question;
-                showGate('gateClarify');
-                addLog('Stopped. Waiting for more info from customer.', 'warning');
-                document.getElementById('startBtn').disabled = false;
-            }
-            else if (data.status === 'MarginApproval') {
-                document.getElementById('gateMarginMsg').textContent =
-                    `Profit is below your 12% minimum. ${data.alert} Do you want to approve it or reject?`;
-                showGate('gateMargin');
-                addLog('Stopped. Margin too low. Waiting for you.', 'warning');
-            }
-            else if (data.status === 'SendApproval') {
-                showGate('gateSend');
-                addLog('Quote is ready. Waiting for your approval.', 'success');
-                if (data.costing) renderResults(data.costing);
-                else document.getElementById('startBtn').disabled = false;
-            }
-
+            render(await post('/api/quote', { enquiry }));
         } catch (err) {
             addLog('Something went wrong: ' + err.message, 'error');
-            document.getElementById('startBtn').disabled = false;
         } finally {
-            document.getElementById('startBtn').innerHTML = 'Start quote';
+            setBusy(false);
+        }
+    }
+
+    async function decide(decision) {
+        if (!sessionId) return;
+        addLog(decision === 'allow' ? 'You approved. Continuing...' : 'You rejected. Stopping...');
+        setBusy(true, 'Working...');
+        try {
+            render(await post('/api/decision', { session_id: sessionId, decision }));
+        } catch (err) {
+            addLog('Something went wrong: ' + err.message, 'error');
+        } finally {
+            setBusy(false);
         }
     }
 </script>
