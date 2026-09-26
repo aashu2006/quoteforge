@@ -92,6 +92,7 @@ def send_quote(quote_id: str, email: str) -> dict:
 class QuoteInput(TypedDict):
     customer: str | None
     email: str
+    spec: dict
     breakdown: dict
     assumptions: list[str]
 
@@ -102,8 +103,9 @@ _quote_numbers = itertools.count(9001)  # mock ids stay clear of real quote ids
 
 @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False))
 def make_quote_pdf(quote: QuoteInput) -> dict:
-    """Save the quote and render its one-page PDF. `breakdown` is the costing.py JSON exactly as printed; it is rejected if it does not add up. Returns the quote_id to use for send_quote."""
+    """Save the quote and render its one-page PDF. `spec` is the validated spec; `breakdown` is the costing.py JSON exactly as printed. Rejected if it does not add up or does not match the shop rate card. Returns the quote_id to use for send_quote."""
     pdf.check_breakdown(quote["breakdown"])
+    pdf.verify_against_rate_card(quote["spec"], quote["breakdown"], get_rate_card(sorted({i["material"] for i in quote["spec"]["items"]})))
     quote_id = f"Q-{next(_quote_numbers):04d}"
     path = pdf.render(quote_id, quote.get("customer"), quote["email"], quote["breakdown"], quote.get("assumptions") or [])
     PDF_PATHS[quote_id] = str(path.relative_to(pdf.QUOTES_DIR.parent))

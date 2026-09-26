@@ -189,7 +189,7 @@ If `missing` is not empty, the agent stops and returns one clarification questio
 | get\_rate\_card | materials list | rates, densities, settings | No |
 | check\_stock | material, thickness, kg needed | available\_kg, short\_kg | No |
 | run\_code | Python source | stdout (JSON breakdown) | No, sandboxed |
-| make\_quote\_pdf | quote {customer, email, breakdown (costing.py JSON unchanged), assumptions} | quote\_id (Q-0001), pdf\_path (quotes/Q-0001.pdf); rejects a breakdown that does not add up | No |
+| make\_quote\_pdf | quote {customer, email, spec, breakdown (costing.py JSON unchanged), assumptions} | quote\_id (Q-0001), pdf\_path (quotes/Q-0001.pdf); rejects a breakdown that does not add up or does not match costing.py re-run on the spec with the shop's rate card | No |
 | request\_margin\_approval | quote\_id, margin\_pct, margin\_floor\_pct, reason | approved status | **Yes, gated** (called only when margin is below floor) |
 | send\_quote | quote\_id (from make\_quote\_pdf), email | sent status, pdf\_path | **Yes, gated** |
 | send\_counter\_offer | quote\_id, email, options [{label, changes, total, unit\_price}], message | sent status | **Yes, gated** |

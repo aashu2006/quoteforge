@@ -98,19 +98,21 @@ def check_stock(material: str, thickness_mm: float, kg_needed: float | None = No
 class QuoteInput(TypedDict):
     customer: str | None
     email: str
+    spec: dict
     breakdown: dict
     assumptions: list[str]
 
 
 @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False))
 def make_quote_pdf(quote: QuoteInput) -> dict:
-    """Save the quote and render its one-page PDF. `breakdown` is the costing.py JSON exactly as printed; it is rejected if it does not add up. Returns the quote_id to use for send_quote."""
-    breakdown = quote["breakdown"]
+    """Save the quote and render its one-page PDF. `spec` is the validated spec; `breakdown` is the costing.py JSON exactly as printed. Rejected if it does not add up or does not match the shop rate card. Returns the quote_id to use for send_quote."""
+    spec, breakdown = quote["spec"], quote["breakdown"]
     pdf.check_breakdown(breakdown)
+    pdf.verify_against_rate_card(spec, breakdown, get_rate_card(sorted({i["material"] for i in spec["items"]})))
     with connect() as conn:
         row = conn.execute(
-            "INSERT INTO quotes (customer, breakdown_json, total, status) VALUES (%s, %s, %s, 'draft') RETURNING id",
-            (quote.get("customer") or "Customer", Jsonb(breakdown), breakdown["total"]),
+            "INSERT INTO quotes (customer, spec_json, breakdown_json, total, status) VALUES (%s, %s, %s, %s, 'draft') RETURNING id",
+            (quote.get("customer") or "Customer", Jsonb(spec), Jsonb(breakdown), breakdown["total"]),
         ).fetchone()
         quote_id = f"Q-{row['id']:04d}"
         path = pdf.render(quote_id, quote.get("customer"), quote["email"], breakdown, quote.get("assumptions") or [])

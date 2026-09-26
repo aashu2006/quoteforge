@@ -46,34 +46,49 @@ def test_rate_card_matches_seed():
     assert anyio.run(call, REAL, "get_rate_card", args) == anyio.run(call, MOCK, "get_rate_card", args)
 
 
-def scenario1_breakdown() -> dict:
+def scenario1(settings: dict | None = None) -> tuple[dict, dict]:
+    """(spec, breakdown) for scenario 1, optionally costed with different settings."""
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "sandbox"))
     import costing
     data = json.loads((Path(__file__).resolve().parents[2] / "sandbox" / "examples" / "scenario1.json").read_text())
-    return json.loads(costing.to_json(costing.compute(data["spec"], data["rate_card"])))
+    data["rate_card"]["settings"].update(settings or {})
+    return data["spec"], json.loads(costing.to_json(costing.compute(data["spec"], data["rate_card"])))
 
 
 @pytest.mark.parametrize("url", [MOCK, REAL])
 def test_make_quote_pdf_then_send(url):
+    spec, breakdown = scenario1()
     quote = {"customer": "Sharma Industries", "email": "purchase@sharma-industries.example",
-             "breakdown": scenario1_breakdown(), "assumptions": ["test"]}
+             "spec": spec, "breakdown": breakdown, "assumptions": ["test"]}
     made = anyio.run(call, url, "make_quote_pdf", {"quote": quote})
     assert made.keys() == {"quote_id", "pdf_path"} and made["pdf_path"].endswith(".pdf")
     sent = anyio.run(call, url, "send_quote", {"quote_id": made["quote_id"], "email": quote["email"]})
     assert sent == {"status": "sent", "pdf_path": made["pdf_path"]}
 
 
-def test_make_quote_pdf_rejects_tampered_breakdown():
-    breakdown = scenario1_breakdown()
-    breakdown["total"] = 1.0
-    quote = {"customer": None, "email": "x@example.com", "breakdown": breakdown, "assumptions": []}
+def rejected(url: str, spec: dict, breakdown: dict) -> bool:
+    quote = {"customer": None, "email": "x@example.com", "spec": spec, "breakdown": breakdown, "assumptions": []}
 
     async def attempt():
-        async with Client(REAL) as c:
+        async with Client(url) as c:
             return await c.call_tool("make_quote_pdf", {"quote": quote})
-    assert anyio.run(attempt).is_error
+    return anyio.run(attempt).is_error
+
+
+@pytest.mark.parametrize("url", [MOCK, REAL])
+def test_make_quote_pdf_rejects_tampered_breakdown(url):
+    spec, breakdown = scenario1()
+    breakdown["total"] = 1.0
+    assert rejected(url, spec, breakdown)
+
+
+@pytest.mark.parametrize("url", [MOCK, REAL])
+def test_make_quote_pdf_rejects_invented_rates(url):
+    # Adds up internally, but was costed with rates that are not the shop's (seen in a real run).
+    spec, breakdown = scenario1({"overhead_pct": 12, "margin_pct": 18, "margin_floor_pct": 10})
+    assert rejected(url, spec, breakdown)
 
 
 @pytest.mark.parametrize("args", [

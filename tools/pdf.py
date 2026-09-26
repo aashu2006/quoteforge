@@ -1,10 +1,15 @@
 """One-page quote PDF from a costing.py breakdown. Shared by the tools server and the mock."""
 
+import json
+import sys
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 
 from fpdf import FPDF
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sandbox"))
+import costing  # noqa: E402  the same tested script the agent runs in the sandbox
 
 SHOP_NAME = "Akshat Engineering & Fabrication Works"
 VALID_DAYS = 7
@@ -31,6 +36,20 @@ def check_breakdown(b: dict) -> None:
         errors.append("total is not price_before_gst + GST")
     if errors:
         raise ValueError("Breakdown rejected; pass the costing.py output unchanged. " + "; ".join(errors))
+
+
+def verify_against_rate_card(spec: dict, breakdown: dict, rate_card: dict) -> None:
+    """Re-run costing.py on the spec with the shop's own rate card; the quote must match it exactly.
+
+    Catches a breakdown built from rates the model wrote itself instead of calling get_rate_card.
+    """
+    spec = {**spec, "target_price": breakdown["margin_check"].get("target_price")}
+    expected = json.loads(costing.to_json(costing.compute(
+        spec, rate_card, breakdown.get("wastage_mode", "flat"),
+        price_at_target=bool(breakdown.get("priced_at_target")), at_floor=bool(breakdown.get("priced_at_floor")))))
+    if d(expected["total"]) != d(breakdown["total"]):
+        raise ValueError(f"Breakdown does not match the shop rate card (expected total {expected['total']}, got {breakdown['total']}). "
+                         "Call get_rate_card, put its output into the costing input unchanged, and re-run costing.py.")
 
 
 def rs(x) -> str:
