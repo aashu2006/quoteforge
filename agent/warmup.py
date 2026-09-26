@@ -44,7 +44,7 @@ def main() -> None:
     print(f"  {execs} sandbox call(s), {time.monotonic() - start:.1f}s total, agent replied: {output.strip()[:200]!r}")
     if not ok:
         sys.exit("Warmup ran but costing.py did not return the expected kg_needed (65.94).")
-    print(f"\nReady. Run the demo in this warmed session:\n  uv run run_demo.py --session {session_id} [--scenario 1|3] [--approve | --deny]")
+    print(f"\nReady. Run the demo in this warmed session:\n  uv run run_demo.py --session {session_id} [--scenario 1|3|4|5] [--approve | --deny]")
 
 
 if __name__ == "__main__":
