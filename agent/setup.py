@@ -11,10 +11,14 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
+from spec import EXTRACTION_SCHEMA
+
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 
 AGENT_NAME = "quoteforge"
+EXTRACT_AGENT_NAME = "quoteforge-extract"
+EXTRACT_PROMPT = (Path(__file__).parent / "prompts" / "extract.md").read_text()
 TOOLS_SERVER = "quoteforge-tools"
 COSTING_SKILL = "quoteforge-costing"
 PROMPT = (Path(__file__).parent / "prompts" / "system.md").read_text()
@@ -145,19 +149,42 @@ def main() -> None:
     params = model_params(properties)
     print(f"Model: {model_fqn} {params}")
 
-    spec = build_spec(model_fqn, params, sandbox=bool(daytona_key))
-    existing = next((a for a in client.get("/agents").json()["data"] if a["name"] == AGENT_NAME), None)
+    save_agent(client, AGENT_NAME, "Turns fabrication enquiries into verified, owner-approved quotes.",
+               build_spec(model_fqn, params, sandbox=bool(daytona_key)))
+    save_agent(client, EXTRACT_AGENT_NAME, "Transcribes an enquiry into raw spec JSON; code validates it.",
+               build_extract_spec(model_fqn, params))
+
+
+def build_extract_spec(model_fqn: str, params: dict) -> dict:
+    # No tools and no sandbox: extraction cannot reach the shop, so a bad spec stops before any tool call.
+    return {
+        "model": {"name": model_fqn, "params": params},
+        "instructions": EXTRACT_PROMPT,
+        "mcp_servers": [],
+        "skills": [],
+        "config": {
+            "sandbox": {"enabled": False},
+            "generative_ui": {"enabled": False},
+            "ask_user_questions": {"enabled": False},
+            "dynamic_sub_agents": {"enabled": False},
+            "iteration_limit": 3,
+        },
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {"name": "spec_extraction", "schema": EXTRACTION_SCHEMA, "strict": True},
+        },
+    }
+
+
+def save_agent(client: httpx.Client, name: str, description: str, manifest: dict) -> None:
+    existing = next((a for a in client.get("/agents").json()["data"] if a["name"] == name), None)
     if existing:
-        put(client, f"/agents/{existing['id']}", {"manifest": spec})
+        put(client, f"/agents/{existing['id']}", {"manifest": manifest})
     else:
-        r = client.post("/agents", json={
-            "name": AGENT_NAME,
-            "description": "Turns fabrication enquiries into verified, owner-approved quotes.",
-            "manifest": spec,
-        })
+        r = client.post("/agents", json={"name": name, "description": description, "manifest": manifest})
         if r.is_error:
             sys.exit(f"POST /agents failed ({r.status_code}): {r.text}")
-    print(f"Agent '{AGENT_NAME}' saved")
+    print(f"Agent '{name}' saved")
 
 
 if __name__ == "__main__":
