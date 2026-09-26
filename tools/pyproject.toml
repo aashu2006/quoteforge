@@ -1,0 +1,15 @@
+[project]
+name = "quoteforge-tools"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fpdf2>=2.8.8",
+    "mcp>=2.2.0",
+    "psycopg[binary]>=3.3.6",
+    "python-dotenv>=1.2.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
