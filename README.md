@@ -1,5 +1,30 @@
-# quoteforge
-AI agent that turns fabrication enquiries into verified, owner-approved quotes
+# QuoteForge
+
+AI agent that turns fabrication enquiries into verified, owner-approved quotes. Built on [TrueForge](https://trueforge.dev/introduction) for the "Build Agents That Act" hackathon.
+
+## Solution Writeup
+
+**Problem:** Small fabrication shops in India quote every job by hand: weight, rates, stock, labour, margin. It takes 1-2 hours per enquiry, math errors cost money and slow replies lose orders.
+
+**What the agent does:** Turns a customer enquiry (even Hinglish with mixed units) into a verified quotation PDF, handles price negotiation, and never sends anything without the owner's approval.
+
+**What it reaches:** Postgres (rate card, stock, quotes) through our MCP tools server, a Daytona sandbox where costing code runs, and a PDF generator.
+
+**Where it stops:**
+
+- Missing or ambiguous specs: asks the customer, the quote agent never starts
+- Margin below the 12% floor: owner approval
+- Before sending any quote or counter-offer: TrueForge Tool Approval
+
+**Architecture:** Enquiry → extraction agent (strict JSON, no tools) → code validates the spec and converts units → quote agent on TrueForge → MCP tools + sandbox costing → approval gates → PDF. Customer replies continue in the same session; for negotiation the agent writes its own script to compare options, but every price comes from the tested `costing.py`.
+
+**How TrueForge was used:** agents and sessions, remote MCP tools, Tool Approval on destructive tools, Daytona sandbox with a git skill pinned to a tag, strict `response_format` for extraction.
+
+**Real vs mocked:** Real: Postgres, MCP tools, sandbox execution, approval gates, PDF, LLM (OpenAI). Mocked: rates, stock and customers are dummy data; email is logged, not sent.
+
+**Guardrails in code:** The model once invented its own rates despite the prompt. So the PDF tool re-runs costing with the shop's rate card and refuses on mismatch, and nothing can be sent without a PDF.
+
+**Known limits:** Rectangular parts only; quantity doesn't lower unit price (no setup charge modelled); per-piece target prices are ignored; clarification answers need a resubmitted enquiry; no real email yet; runs locally, single user.
 
 ## Run it
 
@@ -57,3 +82,7 @@ cd agent && uv run run_demo.py --scenario 1           # CLI run of a demo scenar
 Set `TOOLS_MCP_URL=http://127.0.0.1:8801/mcp` in `.env` and re-run `./start_all.sh`. The mock has the same tools and contracts, with seed data in code instead of Postgres.
 
 More detail on the agent side: [agent/README.md](agent/README.md). Design, contracts and scenarios: [docs/DESIGN.md](docs/DESIGN.md).
+
+## Team
+
+Akshat Patil ([@aashu2006](https://github.com/aashu2006)) and Famous ([@Famous077](https://github.com/Famous077))
