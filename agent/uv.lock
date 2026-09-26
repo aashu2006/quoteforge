@@ -569,6 +569,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "httpx" },
+    { name = "jsonschema" },
     { name = "mcp" },
     { name = "python-dotenv" },
     { name = "trueforge-sdk" },
@@ -582,6 +583,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "mcp", specifier = ">=2.2.0" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "trueforge-sdk", specifier = ">=0.2.0" },

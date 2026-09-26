@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "QuoteForge spec",
+  "description": "Validated spec JSON from the LLD. Dimensions in mm, target_price is the order total including GST.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["customer", "items", "target_price", "missing"],
+  "properties": {
+    "customer": {"type": ["string", "null"]},
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "material", "length_mm", "width_mm", "thickness_mm", "qty", "ops", "finish"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "material": {"enum": ["MS", "SS304", "AL"]},
+          "length_mm": {"type": "number", "exclusiveMinimum": 0},
+          "width_mm": {"type": "number", "exclusiveMinimum": 0},
+          "thickness_mm": {"type": "number", "exclusiveMinimum": 0},
+          "qty": {"type": "integer", "minimum": 1},
+          "ops": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["cutting", "bends", "weld_m", "holes"],
+            "properties": {
+              "cutting": {"type": "integer", "minimum": 0},
+              "bends": {"type": "integer", "minimum": 0},
+              "weld_m": {"type": "number", "minimum": 0},
+              "holes": {"type": "integer", "minimum": 0}
+            }
+          },
+          "finish": {"enum": ["powder_coat", "paint", "galvanise", "none"]}
+        }
+      }
+    },
+    "target_price": {"type": ["number", "null"], "exclusiveMinimum": 0},
+    "missing": {"type": "array", "items": {"type": "string"}}
+  }
+}
