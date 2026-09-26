@@ -4,6 +4,8 @@ An AI agent that turns a fabrication enquiry into a checked quote, and waits for
 
 **Demo video:** [watch here](https://drive.google.com/file/d/1sYHOn_OdXna8wse0ICQOZbzwhUaDvsX8/view?usp=sharing)
 
+![QuoteForge UI: a quote for 50 MS brackets paused at the send gate, with the cost breakdown from costing.py](docs/images/ui-quote.png)
+
 ## Solution Writeup
 
 **The problem.** Small fabrication shops in India price every job by hand: weight, rates, stock, labour, margin. One enquiry takes 1 to 2 hours. Math slips cost money and slow replies lose orders.
@@ -20,6 +22,18 @@ An AI agent that turns a fabrication enquiry into a checked quote, and waits for
 
 **How it works.** Enquiry → extraction agent (strict JSON, no tools) → code checks the spec and converts units → quote agent on TrueForge → MCP tools and sandbox costing → approval gates → PDF. Customer replies go into the same session. For negotiation the agent writes its own script to compare options, but every price comes from our tested `costing.py`.
 
+```mermaid
+flowchart TD
+    A["Customer enquiry"] --> B["Extraction agent<br/>strict JSON, no tools"]
+    B --> C{"Spec validation<br/>in code"}
+    C -- "missing or unclear" --> Q["Questions to the customer<br/>(stops here)"]
+    C -- "valid spec" --> D["TrueForge quote agent"]
+    D <--> E["MCP tools<br/>Postgres"]
+    D <--> F["Daytona sandbox<br/>costing.py"]
+    D --> G{"Approval gates"}
+    G --> H["PDF / send"]
+```
+
 **TrueForge features used.** Agents and sessions, remote MCP tools, Tool Approval, a Daytona sandbox with a tag-pinned git skill, and strict `response_format` for extraction.
 
 **Real vs mocked.** Real: Postgres, MCP tools, sandbox runs, approval gates, the PDF and the LLM (OpenAI). Mocked: rates, stock and customers are dummy data. Email is logged, not sent.
@@ -27,6 +41,19 @@ An AI agent that turns a fabrication enquiry into a checked quote, and waits for
 **Guardrails in code.** The model once made up its own rates despite the prompt. So the PDF tool re-runs costing with the shop's rate card and refuses on a mismatch. No PDF, no send.
 
 **Known limits.** Rectangular parts only. No setup charge, so bigger quantities don't lower the unit price. Per-piece target prices are ignored. Clarification answers need a fresh enquiry. No real email yet. Local, single user.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/ui-counter-offer.png" alt="Counter-offer view: the customer asked for Rs 7,500 and the agent offers three options priced at the margin floor"></td>
+    <td width="50%"><img src="docs/images/quote-pdf.png" alt="Quote PDF for 50 MS L brackets: line items, GST and a grand total of Rs 9,654.44"></td>
+  </tr>
+  <tr>
+    <td>Negotiation: the customer asks for Rs 7,500, and the agent drafts a counter-offer with three options priced by costing.py. It waits for the owner.</td>
+    <td>The quote PDF: every rate and amount comes from costing.py.</td>
+  </tr>
+</table>
 
 ## Run it
 
