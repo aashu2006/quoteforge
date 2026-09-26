@@ -192,6 +192,7 @@ If `missing` is not empty, the agent stops and returns one clarification questio
 | make\_quote\_pdf | quote JSON | pdf\_path | No |
 | request\_margin\_approval | quote\_id, margin\_pct, margin\_floor\_pct, reason | approved status | **Yes, gated** (called only when margin is below floor) |
 | send\_quote | quote\_id, email | sent status | **Yes, gated** |
+| send\_counter\_offer | quote\_id, email, options [{label, changes, total, unit\_price}], message | sent status | **Yes, gated** |
 | create\_po (stretch) | material, qty | po\_id | **Yes, gated** |
 
 ### Costing formula (inside run\_code)
@@ -218,13 +219,14 @@ L, B, T in mm, rho in kg/m3, q = quantity, w = wastage, o = overhead, m = margin
 
 Money is rounded to paise per line, so line items add up exactly to every total. `unit_price_before_gst` is for display only and is not part of any sum.
 
-`priced_at_target` is false for standard pricing. After the owner approves a below-floor margin, the agent re-runs with `--price-at-target`: the margin is solved so `total` equals `target_price` exactly (the margin line absorbs paise rounding), `margin.pct` shows the effective margin and `priced_at_target` is true. Scenario 3 at target: margin Rs 554.77 (8.14%), price before GST Rs 7,372.88, GST Rs 1,327.12, total Rs 8,700.00.
+`priced_at_floor` is true when run with `--at-floor`: the margin is `margin_floor_pct`, which gives the floor price used in negotiation (scenario 1 at floor: margin Rs 818.17, total Rs 9,010.81). `priced_at_target` is false for standard pricing. After the owner approves a below-floor margin, the agent re-runs with `--price-at-target`: the margin is solved so `total` equals `target_price` exactly (the margin line absorbs paise rounding), `margin.pct` shows the effective margin and `priced_at_target` is true. Scenario 3 at target: margin Rs 554.77 (8.14%), price before GST Rs 7,372.88, GST Rs 1,327.12, total Rs 8,700.00.
 
 ```json
 {
   "customer": "Sharma Industries",
   "wastage_mode": "flat",
   "priced_at_target": false,
+  "priced_at_floor": false,
   "items": [{
     "name": "L bracket", "material": "MS", "qty": 50,
     "dimensions_mm": [200, 100, 8],

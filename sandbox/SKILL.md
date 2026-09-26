@@ -30,6 +30,12 @@ Write one JSON file with the spec and the rate card exactly as `get_rate_card` r
    `python3 costing.py --price-at-target < input.json`
    The margin is solved so `total` equals `target_price` exactly; `priced_at_target` is true and `margin.pct` is the effective margin.
 
+## Negotiation
+
+- Floor price (lowest the shop accepts without owner approval): `python3 costing.py --at-floor < input.json`. `priced_at_floor` is true and the margin is the rate card's `margin_floor_pct`.
+- To compare counter-offer options, write your own script that builds one input per option (a changed spec), runs `costing.py --at-floor` on each with `subprocess`, and tabulates `total` and `unit_price_before_gst`. The prices must come from those runs; the script only arranges them.
+- Options may change finish or quantity. Never change material or thickness unless the customer asked.
+
 ## Notes
 
 - `target_price` in the spec is the customer's order total including GST, or null.

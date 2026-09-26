@@ -92,6 +92,37 @@ def test_price_at_target_needs_target(scenario1):
         compute(scenario1["spec"], scenario1["rate_card"], price_at_target=True)
 
 
+def test_at_floor_scenario1(scenario1):
+    b = compute(scenario1["spec"], scenario1["rate_card"], at_floor=True)
+    assert b["priced_at_floor"] and not b["priced_at_target"]
+    assert b["cost_subtotal"] == Decimal("6198.28")
+    assert b["margin"] == {"pct": 12, "amount": Decimal("818.17")}
+    assert b["total"] == Decimal("9010.81")
+    assert not b["margin_check"]["below_floor"]
+    assert b["self_check"]["passed"]
+
+
+def test_at_floor_negotiation_options(scenario1):
+    # Scenario 4 counter-offer options: change finish only, never material or thickness.
+    totals = {}
+    for finish in ("powder_coat", "paint", "none"):
+        scenario1["spec"]["items"][0]["finish"] = finish
+        totals[finish] = compute(scenario1["spec"], scenario1["rate_card"], at_floor=True)["total"]
+    assert totals["powder_coat"] > totals["paint"] > totals["none"]
+    assert totals["none"] > 7500  # no finish option reaches the customer's Rs 7,500
+
+
+def test_at_floor_leaves_standard_pricing_alone(scenario1):
+    compute(scenario1["spec"], scenario1["rate_card"], at_floor=True)
+    assert compute(scenario1["spec"], scenario1["rate_card"])["total"] == Decimal("9654.44")
+
+
+def test_at_floor_and_target_are_exclusive(scenario1):
+    scenario1["spec"]["target_price"] = 8700
+    with pytest.raises(InputError):
+        compute(scenario1["spec"], scenario1["rate_card"], price_at_target=True, at_floor=True)
+
+
 def test_standard_pricing_not_priced_at_target(scenario1):
     assert compute(scenario1["spec"], scenario1["rate_card"])["priced_at_target"] is False
 

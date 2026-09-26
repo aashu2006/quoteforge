@@ -4,6 +4,7 @@ Run: python3 costing.py < input.json                 full breakdown
      python3 costing.py --weight-only < input.json   weights and kg_needed for the stock check
      python3 costing.py --wastage-mode nesting ...   material from whole sheets instead of flat wastage
      python3 costing.py --price-at-target ...        margin solved so the total equals target_price
+     python3 costing.py --at-floor ...               margin at the rate card's margin floor (lowest acceptable price)
 Input: {"spec": <spec JSON>, "rate_card": <get_rate_card output>}
 Exit code 1 when the self-check fails; the JSON still prints with the reasons.
 """
@@ -157,7 +158,9 @@ def split_target(total: Decimal, g: Decimal) -> tuple[Decimal, Decimal]:
     return base, total - base
 
 
-def compute(spec: dict, rate_card: dict, wastage_mode: str = "flat", price_at_target: bool = False) -> dict:
+def compute(spec: dict, rate_card: dict, wastage_mode: str = "flat", price_at_target: bool = False, at_floor: bool = False) -> dict:
+    if price_at_target and at_floor:
+        raise InputError("--price-at-target and --at-floor cannot be combined")
     rates = index_rates(rate_card)
     settings = rates[3]
     items, errors = [], []
@@ -167,6 +170,8 @@ def compute(spec: dict, rate_card: dict, wastage_mode: str = "flat", price_at_ta
         errors += item_errors
 
     o, m, g, floor = pct(settings["overhead_pct"]), pct(settings["margin_pct"]), pct(settings["gst_pct"]), pct(settings["margin_floor_pct"])
+    if at_floor:
+        m = floor  # lowest price the shop accepts without owner approval
     subtotal = sum((i["item_cost"] for i in items), Decimal(0))
     overhead = money(subtotal * o)
     cost_with_overhead = subtotal + overhead
@@ -181,7 +186,7 @@ def compute(spec: dict, rate_card: dict, wastage_mode: str = "flat", price_at_ta
         margin_pct = (margin / cost_with_overhead * 100).quantize(PAISE, rounding=ROUND_HALF_UP)
     else:
         margin = money(cost_with_overhead * m)
-        margin_pct = settings["margin_pct"]
+        margin_pct = settings["margin_floor_pct"] if at_floor else settings["margin_pct"]
         before_gst = cost_with_overhead + margin
         gst = money(before_gst * g)
     for item in items:
@@ -196,6 +201,7 @@ def compute(spec: dict, rate_card: dict, wastage_mode: str = "flat", price_at_ta
         "customer": spec.get("customer"),
         "wastage_mode": wastage_mode,
         "priced_at_target": price_at_target,
+        "priced_at_floor": at_floor,
         "items": items,
         "cost_subtotal": subtotal,
         "overhead": {"pct": settings["overhead_pct"], "amount": overhead},
@@ -243,13 +249,14 @@ def main() -> int:
     parser.add_argument("--weight-only", action="store_true")
     parser.add_argument("--wastage-mode", choices=["flat", "nesting"], default="flat")
     parser.add_argument("--price-at-target", action="store_true", help="solve margin so the total equals target_price")
+    parser.add_argument("--at-floor", action="store_true", help="price at the margin floor from the rate card")
     args = parser.parse_args()
     data = json.load(sys.stdin)
     try:
         if args.weight_only:
             print(to_json(weights(data["spec"], data["rate_card"], args.wastage_mode)))
             return 0
-        breakdown = compute(data["spec"], data["rate_card"], args.wastage_mode, args.price_at_target)
+        breakdown = compute(data["spec"], data["rate_card"], args.wastage_mode, args.price_at_target, args.at_floor)
     except (InputError, KeyError, ValueError) as e:
         print(to_json({"self_check": {"passed": False, "errors": [f"invalid input: {e}"]}}))
         return 1
