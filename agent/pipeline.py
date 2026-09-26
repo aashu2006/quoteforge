@@ -82,3 +82,29 @@ def quote_message(enquiry: str, result: Result, note: str = "") -> str:
 def clarification_reply(result: Result) -> str:
     return "Thank you for your enquiry. Before we can quote, could you please help us with the following?\n\n" + \
         "\n".join(f"{i}. {q}" for i, q in enumerate(result.questions, 1))
+
+
+def find_breakdowns(content) -> list[dict]:
+    """Pull every costing.py breakdown out of a sandbox tool response, however the harness wraps stdout.
+
+    One command can run costing.py more than once (e.g. --at-floor then --price-at-target).
+    """
+    if isinstance(content, dict):
+        if "line_items" in json.dumps(content) and "total" in content:
+            return [content]
+        return [b for v in content.values() for b in find_breakdowns(v)]
+    if isinstance(content, list):
+        return [b for v in content for b in find_breakdowns(v)]
+    found = []
+    if isinstance(content, str) and "line_items" in content:
+        decoder = json.JSONDecoder()
+        i = 0
+        while (i := content.find("{", i)) != -1:
+            try:
+                obj, end = decoder.raw_decode(content, i)
+            except ValueError:
+                i += 1
+                continue
+            found += find_breakdowns(obj)
+            i = end
+    return found

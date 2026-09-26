@@ -5,11 +5,17 @@ Run: uv run mocks/server.py [--port 8801]
 """
 
 import argparse
+import itertools
 import sys
+from pathlib import Path
 from typing import TypedDict
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
+
+# The real PDF renderer, so the mock produces the same document.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+import pdf  # noqa: E402
 
 # Seed values from DESIGN.md (dummy data).
 MATERIALS = {
@@ -80,7 +86,30 @@ def send_counter_offer(quote_id: str, email: str, options: list[CounterOption], 
 def send_quote(quote_id: str, email: str) -> dict:
     """Send a finalised quote to the customer. Irreversible: a sent price is a commitment."""
     print(f"[mock] send_quote quote_id={quote_id} email={email}", file=sys.stderr)
-    return {"status": "sent"}
+    return {"status": "sent", "pdf_path": PDF_PATHS.get(quote_id)}
+
+
+class QuoteInput(TypedDict):
+    customer: str | None
+    email: str
+    spec: dict
+    breakdown: dict
+    assumptions: list[str]
+
+
+PDF_PATHS: dict[str, str] = {}
+_quote_numbers = itertools.count(9001)  # mock ids stay clear of real quote ids
+
+
+@mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False))
+def make_quote_pdf(quote: QuoteInput) -> dict:
+    """Save the quote and render its one-page PDF. `spec` is the validated spec; `breakdown` is the costing.py JSON exactly as printed. Rejected if it does not add up or does not match the shop rate card. Returns the quote_id to use for send_quote."""
+    pdf.check_breakdown(quote["breakdown"])
+    pdf.verify_against_rate_card(quote["spec"], quote["breakdown"], get_rate_card(sorted({i["material"] for i in quote["spec"]["items"]})))
+    quote_id = f"Q-{next(_quote_numbers):04d}"
+    path = pdf.render(quote_id, quote.get("customer"), quote["email"], quote["breakdown"], quote.get("assumptions") or [])
+    PDF_PATHS[quote_id] = str(path.relative_to(pdf.QUOTES_DIR.parent))
+    return {"quote_id": quote_id, "pdf_path": PDF_PATHS[quote_id]}
 
 
 if __name__ == "__main__":

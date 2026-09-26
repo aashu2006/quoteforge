@@ -1,0 +1,13 @@
+# Run from the repo root: docker compose -f db/docker-compose.yml --env-file .env up -d
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-quoteforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-quoteforge}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ./schema.sql:/docker-entrypoint-initdb.d/1_schema.sql
+      - ./seed.sql:/docker-entrypoint-initdb.d/2_seed.sql
