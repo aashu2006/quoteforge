@@ -1,0 +1,12 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: quoteforge
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./schema.sql:/docker-entrypoint-initdb.d/1_schema.sql
+      - ./seed.sql:/docker-entrypoint-initdb.d/2_seed.sql

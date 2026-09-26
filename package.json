@@ -1,0 +1,30 @@
+{
+  "name": "quoteforge",
+  "version": "1.0.0",
+  "description": "AI agent that turns fabrication enquiries into verified, owner-approved quotes",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Famous077/quoteforge.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Famous077/quoteforge/issues"
+  },
+  "homepage": "https://github.com/Famous077/quoteforge#readme",
+  "dependencies": {
+    "dotenv": "^18.0.4",
+    "express": "^5.2.1",
+    "pg": "^8.23.0"
+  }
+}

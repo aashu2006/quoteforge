@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuoteForge</title>
+    <meta name="description" content="Turn customer enquiries into quotes fast.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #F5F4F0;
+            color: #1C1C1E;
+            min-height: 100vh;
+            font-size: 15px;
+            line-height: 1.5;
+        }
+
+        /* ── Top bar ── */
+        header {
+            background: #fff;
+            border-bottom: 1px solid #E5E4E0;
+            padding: 0 32px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .logo {
+            font-size: 18px;
+            font-weight: 700;
+            color: #1C1C1E;
+            letter-spacing: -0.3px;
+        }
+        .logo span { color: #3B6CF8; }
+        .status-dot {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            font-size: 13px;
+            color: #6B6B6B;
+        }
+        .dot {
+            width: 8px;
+            height: 8px;
+            background: #30A46C;
+            border-radius: 50%;
+        }
+
+        /* ── Main layout ── */
+        .page {
+            display: grid;
+            grid-template-columns: 420px 1fr;
+            height: calc(100vh - 56px);
+        }
+
+        /* ── Left sidebar ── */
+        .sidebar {
+            background: #fff;
+            border-right: 1px solid #E5E4E0;
+            padding: 28px 24px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* ── Right panel ── */
+        .main {
+            padding: 28px 32px;
+            overflow-y: auto;
+            background: #F5F4F0;
+        }
+
+        /* ── Section heading ── */
+        .section-label {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: #9B9B9B;
+            margin-bottom: 10px;
+        }
+
+        /* ── Textarea ── */
+        textarea {
+            width: 100%;
+            height: 130px;
+            background: #FAFAF8;
+            border: 1.5px solid #E5E4E0;
+            border-radius: 10px;
+            color: #1C1C1E;
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            padding: 12px 14px;
+            resize: none;
+            transition: border-color 0.15s;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #3B6CF8;
+        }
+        textarea::placeholder { color: #ADADAD; }
+
+        /* ── Quick load buttons ── */
+        .scenarios {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .scenario-label {
+            font-size: 12px;
+            color: #9B9B9B;
+            margin-bottom: 4px;
+            font-weight: 500;
+        }
+        .scenario-btn {
+            background: #FAFAF8;
+            border: 1.5px solid #E5E4E0;
+            border-radius: 8px;
+            padding: 9px 12px;
+            font-size: 13px;
+            color: #3B3B3B;
+            text-align: left;
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s;
+            font-family: 'Inter', sans-serif;
+        }
+        .scenario-btn:hover {
+            border-color: #3B6CF8;
+            background: #F0F4FF;
+            color: #3B6CF8;
+        }
+        .scenario-tag {
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 1px 7px;
+            border-radius: 4px;
+            margin-right: 6px;
+        }
+        .tag-green  { background: #DCFCE7; color: #166534; }
+        .tag-yellow { background: #FEF9C3; color: #854D0E; }
+        .tag-red    { background: #FEE2E2; color: #991B1B; }
+        .tag-blue   { background: #DBEAFE; color: #1E40AF; }
+
+        /* ── Start button ── */
+        .btn-start {
+            background: #3B6CF8;
+            color: #fff;
+            border: none;
+            padding: 11px 20px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            font-family: 'Inter', sans-serif;
+            transition: background 0.15s, transform 0.1s;
+        }
+        .btn-start:hover  { background: #2D5CE8; }
+        .btn-start:active { transform: scale(0.98); }
+        .btn-start:disabled {
+            background: #D1D5DB;
+            color: #9CA3AF;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* ── Log box ── */
+        .log-box {
+            background: #FAFAF8;
+            border: 1.5px solid #E5E4E0;
+            border-radius: 10px;
+            padding: 14px;
+            min-height: 160px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12.5px;
+            color: #9B9B9B;
+            line-height: 1.8;
+            overflow-y: auto;
+            max-height: 240px;
+        }
+        .log-line         { color: #3B3B3B; }
+        .log-line.success { color: #30A46C; }
+        .log-line.warning { color: #D97706; }
+        .log-line.error   { color: #DC2626; }
+
+        /* ── Alert / gate cards ── */
+        .gate {
+            border-radius: 10px;
+            padding: 16px;
+            display: none;
+        }
+        .gate.margin-gate {
+            background: #FFFBEB;
+            border: 1.5px solid #FCD34D;
+        }
+        .gate.send-gate {
+            background: #F0FDF4;
+            border: 1.5px solid #86EFAC;
+        }
+        .gate.clarify-gate {
+            background: #EFF6FF;
+            border: 1.5px solid #93C5FD;
+        }
+        .gate h4 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        .gate p {
+            font-size: 13px;
+            color: #4B4B4B;
+            margin-bottom: 14px;
+        }
+        .gate-btns { display: flex; gap: 8px; }
+        .btn-ok {
+            background: #1C1C1E;
+            color: #fff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            transition: opacity 0.15s;
+        }
+        .btn-ok:hover { opacity: 0.8; }
+        .btn-cancel {
+            background: transparent;
+            color: #6B6B6B;
+            border: 1.5px solid #E5E4E0;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            transition: border-color 0.15s;
+        }
+        .btn-cancel:hover { border-color: #9B9B9B; color: #1C1C1E; }
+
+        /* ── Right panel: empty state ── */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #ADADAD;
+            text-align: center;
+            gap: 12px;
+        }
+        .empty-icon {
+            font-size: 40px;
+            opacity: 0.4;
+        }
+        .empty-state p { font-size: 14px; max-width: 240px; }
+
+        /* ── Result cards ── */
+        .result-section { margin-bottom: 28px; }
+        .result-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1C1C1E;
+            margin-bottom: 14px;
+        }
+
+        .spec-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+        .spec-tile {
+            background: #fff;
+            border: 1.5px solid #E5E4E0;
+            border-radius: 10px;
+            padding: 14px 16px;
+        }
+        .spec-tile .label {
+            font-size: 12px;
+            color: #9B9B9B;
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+        .spec-tile .value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1C1C1E;
+        }
+
+        /* ── Nesting pill ── */
+        .nesting-row {
+            background: #fff;
+            border: 1.5px solid #E5E4E0;
+            border-radius: 10px;
+            padding: 12px 16px;
+            margin-top: 10px;
+            font-size: 13px;
+            color: #4B4B4B;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .nesting-row span { font-weight: 600; color: #1C1C1E; }
+
+        /* ── Cost table ── */
+        .cost-table {
+            background: #fff;
+            border: 1.5px solid #E5E4E0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .cost-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            border-bottom: 1px solid #F0EFE9;
+            font-size: 14px;
+        }
+        .cost-row:last-child { border-bottom: none; }
+        .cost-row .name  { color: #4B4B4B; }
+        .cost-row .amt   { font-family: 'JetBrains Mono', monospace; font-weight: 500; color: #1C1C1E; }
+        .cost-row.total  {
+            background: #FAFAF8;
+            border-top: 2px solid #E5E4E0;
+            font-weight: 700;
+            font-size: 15px;
+        }
+        .cost-row.total .amt { color: #3B6CF8; font-size: 17px; }
+
+        /* ── Margin badge ── */
+        .margin-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 14px;
+        }
+        .margin-badge.good  { background: #DCFCE7; color: #166534; }
+        .margin-badge.warn  { background: #FEF9C3; color: #854D0E; }
+        .margin-badge.bad   { background: #FEE2E2; color: #991B1B; }
+
+        .stock-note {
+            margin-top: 10px;
+            font-size: 13px;
+            color: #6B6B6B;
+        }
+        .stock-note .ok   { color: #30A46C; font-weight: 600; }
+        .stock-note .low  { color: #D97706; font-weight: 600; }
+
+        /* ── Spinner ── */
+        .spinner {
+            display: inline-block;
+            width: 13px; height: 13px;
+            border: 2px solid rgba(255,255,255,0.4);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="logo">Quote<span>Forge</span></div>
+    <div class="status-dot"><div class="dot"></div>Ready</div>
+</header>
+
+<div class="page">
+
+    <!-- ── LEFT: Input side ── -->
+    <div class="sidebar">
+
+        <!-- Enquiry input -->
+        <div>
+            <div class="section-label">Customer request</div>
+            <textarea id="enquiryText" placeholder="Paste or type what the customer sent you. e.g. 50 MS brackets, 200x100x8 mm, powder coated."></textarea>
+        </div>
+
+        <!-- Demo scenarios -->
+        <div class="scenarios">
+            <div class="scenario-label">Try a demo</div>
+            <button class="scenario-btn" onclick="loadScenario(1)">
+                <span class="scenario-tag tag-green">Clean</span>50 MS brackets, all specs included
+            </button>
+            <button class="scenario-btn" onclick="loadScenario(2)">
+                <span class="scenario-tag tag-yellow">Missing info</span>Thickness not mentioned
+            </button>
+            <button class="scenario-btn" onclick="loadScenario(3)">
+                <span class="scenario-tag tag-red">Low margin</span>Customer asks for a lower price
+            </button>
+            <button class="scenario-btn" onclick="loadScenario(4)">
+                <span class="scenario-tag tag-blue">Low stock</span>SS304 stock is limited
+            </button>
+        </div>
+
+        <!-- Start button -->
+        <button class="btn-start" id="startBtn" onclick="startQuote()">Start quote</button>
+
+        <!-- Live log -->
+        <div>
+            <div class="section-label">What the agent is doing</div>
+            <div class="log-box" id="liveLog">Waiting for a request...</div>
+        </div>
+
+        <!-- Gates -->
+        <div class="gate margin-gate" id="gateMargin">
+            <h4>Margin is too low</h4>
+            <p id="gateMarginMsg">The profit on this quote is below your 12% limit. You can approve it anyway or reject it.</p>
+            <div class="gate-btns">
+                <button class="btn-ok" onclick="handleGate('approve_margin')">Approve anyway</button>
+                <button class="btn-cancel" onclick="handleGate('reject')">Reject</button>
+            </div>
+        </div>
+
+        <div class="gate send-gate" id="gateSend">
+            <h4>Ready to send</h4>
+            <p id="gateSendMsg">The quote looks good. Send it to the customer or save it as a draft.</p>
+            <div class="gate-btns">
+                <button class="btn-ok" onclick="handleGate('approve_send')">Send quote</button>
+                <button class="btn-cancel" onclick="handleGate('save_draft')">Save as draft</button>
+            </div>
+        </div>
+
+        <div class="gate clarify-gate" id="gateClarify">
+            <h4>Need more info</h4>
+            <p id="gateClarifyMsg"></p>
+        </div>
+
+    </div>
+
+    <!-- ── RIGHT: Results ── -->
+    <div class="main" id="mainPanel">
+
+        <div class="empty-state" id="emptyState">
+            <div class="empty-icon">📋</div>
+            <p>Your quote breakdown will show up here once you run a request.</p>
+        </div>
+
+        <div id="resultPanel" style="display:none;">
+
+            <!-- Specs -->
+            <div class="result-section">
+                <div class="result-title">What we found</div>
+                <div class="spec-grid" id="specGrid"></div>
+                <div class="nesting-row" id="nestingRow" style="display:none;"></div>
+            </div>
+
+            <!-- Cost breakdown -->
+            <div class="result-section">
+                <div class="result-title">Cost breakdown</div>
+                <div class="cost-table" id="costTable"></div>
+                <div id="marginBadge"></div>
+                <div class="stock-note" id="stockNote"></div>
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+    const SCENARIOS = {
+        1: "Hi, please quote for 50 MS brackets, 200x100x8 mm, powder coated.",
+        2: "Need a price for 50 MS brackets, 200x100 mm, powder coated.",
+        3: "Hi, please quote for 50 MS brackets, 200x100x8 mm, powder coated. My target price is Rs 4500 total, can you match it?",
+        4: "Need 100 SS304 sheets cut to 500x500x5 mm, unpainted."
+    };
+
+    function loadScenario(n) {
+        document.getElementById('enquiryText').value = SCENARIOS[n];
+    }
+
+    function addLog(text, type = '') {
+        const box = document.getElementById('liveLog');
+        if (box.textContent === 'Waiting for a request...') box.innerHTML = '';
+        const line = document.createElement('div');
+        line.className = 'log-line ' + type;
+        line.textContent = text;
+        box.appendChild(line);
+        box.scrollTop = box.scrollHeight;
+    }
+
+    function showGate(id) {
+        ['gateMargin', 'gateSend', 'gateClarify'].forEach(g => {
+            document.getElementById(g).style.display = (g === id) ? 'block' : 'none';
+        });
+    }
+
+    function hideGates() {
+        ['gateMargin', 'gateSend', 'gateClarify'].forEach(g => {
+            document.getElementById(g).style.display = 'none';
+        });
+    }
+
+    function handleGate(action) {
+        hideGates();
+        const msgs = {
+            approve_send:   'Sent! Quote has gone to the customer.',
+            save_draft:     'Saved as a draft.',
+            reject:         'Quote rejected.',
+            approve_margin: 'Margin approved. Generating quote...'
+        };
+        const types = {
+            approve_send: 'success', save_draft: 'warning',
+            reject: 'error', approve_margin: 'warning'
+        };
+        addLog(msgs[action], types[action]);
+        document.getElementById('startBtn').disabled = false;
+    }
+
+    function renderResults(costing) {
+        document.getElementById('emptyState').style.display = 'none';
+        document.getElementById('resultPanel').style.display = 'block';
+
+        // Specs
+        document.getElementById('specGrid').innerHTML = `
+            <div class="spec-tile"><div class="label">Material</div><div class="value">${costing.material}</div></div>
+            <div class="spec-tile"><div class="label">Quantity</div><div class="value">${costing.qty} pieces</div></div>
+            <div class="spec-tile"><div class="label">Weight per piece</div><div class="value">${costing.weight_per_piece_kg} kg</div></div>
+            <div class="spec-tile"><div class="label">Total weight</div><div class="value">${costing.total_weight_kg} kg</div></div>
+        `;
+
+        // Nesting
+        const n = costing.nesting;
+        const nestRow = document.getElementById('nestingRow');
+        nestRow.style.display = 'flex';
+        nestRow.innerHTML = `
+            Nesting: <span>${n.parts_per_sheet} parts</span> fit per sheet &nbsp;|&nbsp;
+            <span>${n.sheets_needed} sheet${n.sheets_needed > 1 ? 's' : ''}</span> needed &nbsp;|&nbsp;
+            <span>${n.real_scrap_pct}% scrap</span>
+        `;
+
+        // Cost breakdown
+        const b = costing.breakdown;
+        document.getElementById('costTable').innerHTML = `
+            <div class="cost-row"><span class="name">Material</span><span class="amt">Rs ${b.material_cost.toLocaleString()}</span></div>
+            <div class="cost-row"><span class="name">Labour</span><span class="amt">Rs ${b.labour_cost.toLocaleString()}</span></div>
+            <div class="cost-row"><span class="name">Finishing</span><span class="amt">Rs ${b.finish_cost.toLocaleString()}</span></div>
+            <div class="cost-row"><span class="name">Overhead (10%)</span><span class="amt">Rs ${b.overhead.toLocaleString()}</span></div>
+            <div class="cost-row"><span class="name">Margin (20%)</span><span class="amt">Rs ${b.margin.toLocaleString()}</span></div>
+            <div class="cost-row"><span class="name">GST (18%)</span><span class="amt">Rs ${b.gst.toLocaleString()}</span></div>
+            <div class="cost-row total"><span>Total</span><span class="amt">Rs ${b.total.toLocaleString()}</span></div>
+        `;
+
+        // Margin badge
+        const m = costing.margin_check;
+        const cls = m.passed ? (m.achieved_pct > 18 ? 'good' : 'warn') : 'bad';
+        const icon = m.passed ? '✓' : '✗';
+        document.getElementById('marginBadge').innerHTML =
+            `<div class="margin-badge ${cls}">${icon} Margin: ${m.achieved_pct}% (floor is ${m.floor_pct}%)</div>`;
+
+        // Stock note
+        const sc = costing.stock;
+        const stockClass = sc.short_kg === 0 ? 'ok' : 'low';
+        document.getElementById('stockNote').innerHTML =
+            `Stock: <span class="${stockClass}">${sc.status}</span>`;
+    }
+
+    async function startQuote() {
+        const enquiry = document.getElementById('enquiryText').value.trim();
+        if (!enquiry) { alert('Please type or paste a customer request first.'); return; }
+
+        // Reset
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('startBtn').innerHTML = '<span class="spinner"></span>Working...';
+        document.getElementById('liveLog').innerHTML = '';
+        document.getElementById('emptyState').style.display = 'flex';
+        document.getElementById('resultPanel').style.display = 'none';
+        hideGates();
+
+        addLog('Got the request. Starting...');
+
+        try {
+            const resp = await fetch('/api/quote', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enquiry })
+            });
+            const data = await resp.json();
+
+            (data.logs || []).forEach(l => {
+                const isWarn = l.toLowerCase().includes('margin') || l.toLowerCase().includes('stock');
+                addLog(l, isWarn ? 'warning' : '');
+            });
+
+            if (data.status === 'NeedsClarification') {
+                document.getElementById('gateClarifyMsg').textContent = data.question;
+                showGate('gateClarify');
+                addLog('Stopped. Waiting for more info from customer.', 'warning');
+                document.getElementById('startBtn').disabled = false;
+            }
+            else if (data.status === 'MarginApproval') {
+                document.getElementById('gateMarginMsg').textContent =
+                    `Profit is below your 12% minimum. ${data.alert} Do you want to approve it or reject?`;
+                showGate('gateMargin');
+                addLog('Stopped. Margin too low. Waiting for you.', 'warning');
+            }
+            else if (data.status === 'SendApproval') {
+                showGate('gateSend');
+                addLog('Quote is ready. Waiting for your approval.', 'success');
+                if (data.costing) renderResults(data.costing);
+                else document.getElementById('startBtn').disabled = false;
+            }
+
+        } catch (err) {
+            addLog('Something went wrong: ' + err.message, 'error');
+            document.getElementById('startBtn').disabled = false;
+        } finally {
+            document.getElementById('startBtn').innerHTML = 'Start quote';
+        }
+    }
+</script>
+</body>
+</html>
