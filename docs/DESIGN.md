@@ -253,6 +253,30 @@ Money is rounded to paise per line, so line items add up exactly to every total.
 }
 ```
 
+### UI API (`agent/api.py`, called by `server.js`)
+
+`POST /api/quote {enquiry}` runs `api.py start`; `POST /api/decision {session_id, decision: "allow"|"deny", reason?}` runs `api.py decide`. Both return one JSON object:
+
+```json
+{
+  "status": "needs_clarification | gate | done | error",
+  "session_id": "01m3...",
+  "questions": ["Could you please confirm the plate thickness of the L bracket (in mm)?"],
+  "reply": "Thank you for your enquiry. ...",
+  "spec": { "...": "validated spec" },
+  "assumptions": ["L bracket: 1 cutting operation per piece."],
+  "gate": {"kind": "margin | send | counter_offer", "tool": "send_quote", "args": {"quote_id": "Q-0003", "email": "..."}},
+  "breakdown": { "...": "latest costing.py breakdown" },
+  "quote": {"quote_id": "Q-0003", "pdf_path": "quotes/Q-0003.pdf"},
+  "sent": {"quote": false, "counter_offer": false},
+  "message": "agent's final message when status is done",
+  "logs": ["get_rate_card done", "sandbox: ...", "make_quote_pdf done"],
+  "error": "only when status is error"
+}
+```
+
+`questions`/`reply` come only with `needs_clarification` (no agent session exists then). `gate` comes only with `gate`, read back from TrueForge's pending approvals. `sent` is true only when the send tool actually returned `"sent"`; the UI must not show "Sent" otherwise.
+
 ### Agent states
 
 ```mermaid

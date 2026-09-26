@@ -18,6 +18,7 @@ from trueforge_sdk import TrueForge
 from trueforge_sdk.events import is_event_delta, merge_event_delta
 
 import pipeline
+from pipeline import find_breakdowns
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
@@ -100,32 +101,6 @@ def find_call(events: dict, tool_call_id: str) -> tuple[str, str]:
                 if tc.id == tool_call_id:
                     return tc.function.name, tc.function.arguments
     return "?", "?"
-
-
-def find_breakdowns(content) -> list[dict]:
-    """Pull every costing.py breakdown out of a sandbox tool response, however the harness wraps stdout.
-
-    One command can run costing.py more than once (e.g. --at-floor then --price-at-target).
-    """
-    if isinstance(content, dict):
-        if "line_items" in json.dumps(content) and "total" in content:
-            return [content]
-        return [b for v in content.values() for b in find_breakdowns(v)]
-    if isinstance(content, list):
-        return [b for v in content for b in find_breakdowns(v)]
-    found = []
-    if isinstance(content, str) and "line_items" in content:
-        decoder = json.JSONDecoder()
-        i = 0
-        while (i := content.find("{", i)) != -1:
-            try:
-                obj, end = decoder.raw_decode(content, i)
-            except ValueError:
-                i += 1
-                continue
-            found += find_breakdowns(obj)
-            i = end
-    return found
 
 
 def print_breakdown(b: dict) -> None:
